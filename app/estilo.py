@@ -35,7 +35,7 @@ html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {
   background:
     radial-gradient(900px 600px at 12% 0%, rgba(255,255,255,.85), transparent 60%),
     radial-gradient(800px 600px at 100% 100%, rgba(183,207,214,.55), transparent 60%),
-    linear-gradient(160deg, #eef2f4 0%, #e3eaee 45%, #d3dfe4 100%) !important;
+    linear-gradient(160deg, #eef3f3 0%, #e0eaea 45%, #c8d9dc 100%) !important;
   background-attachment: fixed !important;
 }
 .block-container {padding-top: 1.6rem !important; max-width: 1560px;}
@@ -359,3 +359,102 @@ def tabela(linhas, colunas: list[tuple[str, str, str]]) -> str:
             celulas.append(f'<td class="{classe}">{html}</td>')
         corpo.append(f"<tr>{''.join(celulas)}</tr>")
     return f'<div class="painel tab-html"><table><thead><tr>{cab}</tr></thead><tbody>{"".join(corpo)}</tbody></table></div>'
+
+
+# ------------------------------------------------------- destaques visuais
+CSS_DESTAQUES = """
+<style>
+.bento {height: 262px; padding: 22px 26px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;}
+.escuro {background: linear-gradient(160deg, #24384f 0%, #1a2a3c 100%) !important; border-color: rgba(31,50,71,.9) !important;
+  color: #fff; box-shadow: 0 18px 40px -14px rgba(31,50,71,.55) !important;}
+.escuro .l {color: #a9bccb; font-size: .86rem;}
+.escuro .v {font-size: 3.1rem; font-weight: 300; letter-spacing: -.02em; line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums;}
+.escuro .s {color: #a9bccb; font-size: .84rem; margin-top: 4px;}
+
+.cab-bento {display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;}
+.bolinha {width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: rgba(255,255,255,.12); color: #fff; font-size: .9rem;}
+.bolinha.clara {background: var(--vidro-forte); border: 1px solid var(--borda); color: var(--marinho);}
+.medidor {text-align: center;}
+.medidor .l {font-size: .86rem; color: var(--suave); text-align: left;}
+.medidor .v {font-size: 2.6rem; font-weight: 300; color: var(--tinta); margin-top: -58px; letter-spacing: -.02em;}
+.medidor .s {font-size: .84rem; color: var(--suave); margin-top: 2px;}
+.mini {display: grid; grid-template-columns: 1fr 1fr; gap: 18px 22px;}
+.mini .l {font-size: .82rem; color: var(--suave);}
+.mini .v {font-size: 1.9rem; font-weight: 300; color: var(--tinta); letter-spacing: -.02em; font-variant-numeric: tabular-nums;}
+.chip-delta {display: inline-flex; flex-direction: column; padding: 10px 16px; border-radius: 14px; min-width: 130px;
+  background: var(--vidro-forte); border: 1px solid var(--borda); box-shadow: 0 8px 24px rgba(31,50,71,.08);}
+.chip-delta b {font-size: 1.5rem; font-weight: 300; color: var(--tinta); letter-spacing: -.01em;}
+.chip-delta span {font-size: .78rem; color: var(--suave);}
+.titulo-card {display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 2px;}
+.selo-delta {background: linear-gradient(160deg, #24384f 0%, #1a2a3c 100%) !important; border-color: transparent !important;
+  box-shadow: 0 18px 40px -14px rgba(31,50,71,.55);}
+.selo-delta .x {color: #fff !important;} .selo-delta .t {color: #a9bccb !important;}
+</style>
+"""
+
+
+def _svg_img(svg: str, estilo: str = "") -> str:
+    """st.html sanitiza <svg> embutido; como imagem (data URI) o desenho passa intacto."""
+    import base64
+    if "xmlns=" not in svg:
+        svg = svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ', 1)
+    dados = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f'<img alt="" src="data:image/svg+xml;base64,{dados}" style="{estilo}">'
+
+
+def _sparkline(valores: list[float], largura: int = 320, altura: int = 64) -> str:
+    if len(valores) < 2:
+        return ""
+    vmin, vmax = min(valores), max(valores)
+    faixa = (vmax - vmin) or 1
+    pts = [(i * largura / (len(valores) - 1), altura - 6 - (v - vmin) / faixa * (altura - 14)) for i, v in enumerate(valores)]
+    linha = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = f"M0,{altura} L" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts) + f" L{largura},{altura} Z"
+    ux, uy = pts[-1]
+    return _svg_img(f'<svg viewBox="0 0 {largura} {altura}" width="{largura}" height="{altura}" preserveAspectRatio="none">'
+            '<defs><linearGradient id="gsp" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/>'
+            '<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>'
+            f'<path d="{area}" fill="url(#gsp)"/><polyline points="{linha}" fill="none" stroke="#fff" stroke-width="2" '
+            f'stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'
+            f'<circle cx="{ux:.1f}" cy="{uy:.1f}" r="4" fill="#fff"/></svg>',
+                    f"display:block;width:100%;height:{altura}px;margin-top:12px")
+
+
+def cartao_escuro(rotulo: str, valor: str, sub: str, serie: list[float], icone: str = "↗") -> str:
+    return (f'<div class="painel bento escuro"><div class="cab-bento"><div><div class="l">{e(rotulo)}</div>'
+            f'<div class="v">{e(valor)}</div><div class="s">{e(sub)}</div></div><div class="bolinha">{e(icone)}</div></div>'
+            f'{_sparkline(serie)}</div>')
+
+
+def medidor(fracao: float, rotulo: str, valor: str, sub: str) -> str:
+    """Medidor semicircular (0..1)."""
+    import math
+    f = max(0.0, min(1.0, fracao))
+    r, cx, cy = 92, 110, 108
+    comprimento = math.pi * r
+    arco = f"M{cx - r},{cy} A{r},{r} 0 0 1 {cx + r},{cy}"
+    marcas = "".join(
+        f'<line x1="{cx + (r + 10) * math.cos(math.pi * (1 - t / 10)):.1f}" y1="{cy - (r + 10) * math.sin(math.pi * (1 - t / 10)):.1f}" '
+        f'x2="{cx + (r + 15) * math.cos(math.pi * (1 - t / 10)):.1f}" y2="{cy - (r + 15) * math.sin(math.pi * (1 - t / 10)):.1f}" '
+        f'stroke="#98a7b2" stroke-width="1.5" stroke-linecap="round"/>' for t in range(11))
+    svg = (f'<svg viewBox="0 0 220 124" width="220" height="124">{marcas}'
+           f'<path d="{arco}" fill="none" stroke="rgba(31,50,71,.09)" stroke-width="14" stroke-linecap="round"/>'
+           f'<path d="{arco}" fill="none" stroke="#1f3247" stroke-width="14" stroke-linecap="round" '
+           f'stroke-dasharray="{comprimento * f:.1f} {comprimento:.1f}"/></svg>')
+    svg = _svg_img(svg, "display:block;width:230px;height:130px;margin:4px auto 0")
+    return (f'<div class="painel bento medidor"><div class="cab-bento"><div class="l">{e(rotulo)}</div>'
+            f'<div class="bolinha clara">◔</div></div>{svg}<div class="v">{e(valor)}</div><div class="s">{e(sub)}</div></div>')
+
+
+def mini_numeros(itens: list[tuple[str, str]]) -> str:
+    celulas = "".join(f'<div><div class="l">{e(r)}</div><div class="v">{e(v)}</div></div>' for r, v in itens)
+    return f'<div class="painel bento"><div class="mini">{celulas}</div></div>'
+
+
+def chip_delta(valor: str, legenda: str) -> str:
+    return f'<div class="chip-delta"><b>{e(valor)}</b><span>{e(legenda)}</span></div>'
+
+
+def titulo_card(titulo: str, subtitulo: str, direita: str = "") -> str:
+    return f'<div class="titulo-card">{secao(titulo, subtitulo)}{direita}</div>'

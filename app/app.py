@@ -35,12 +35,21 @@ from src.search_engine.text import normalizar, reduzir  # noqa: E402
 
 st.set_page_config(page_title="Steam Reviews Intelligence", page_icon=":material/query_stats:", layout="wide",
                    initial_sidebar_state="collapsed")
-st.html(ui.CSS + ui.CSS_TABELA)
+st.html(ui.CSS + ui.CSS_TABELA + ui.CSS_DESTAQUES)
 
 MARINHO, ACO, CORAL, PETROLEO = ui.MARINHO, ui.ACO, ui.CORAL, ui.PETROLEO
 COR_RECOMENDACAO = alt.Scale(domain=["Recomendado", "Não recomendado"], range=[MARINHO, CORAL])
 # numeros no padrao brasileiro nos eixos e tooltips (1.000,5)
-LOCALE_BR = {"number": {"decimal": ",", "thousands": ".", "grouping": [3], "currency": ["R$ ", ""]}}
+LOCALE_BR = {
+    "number": {"decimal": ",", "thousands": ".", "grouping": [3], "currency": ["R$ ", ""]},
+    "time": {"dateTime": "%A, %e de %B de %Y. %X", "date": "%d/%m/%Y", "time": "%H:%M:%S",
+             "periods": ["AM", "PM"],
+             "days": ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"],
+             "shortDays": ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"],
+             "months": ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro",
+                        "outubro", "novembro", "dezembro"],
+             "shortMonths": ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]},
+}
 NOMES_ALGORITMO = {"wand_campeoes": "WAND + Champion Lists", "bmw": "Block-Max WAND", "wand": "WAND clássico"}
 
 
@@ -191,68 +200,96 @@ with aba_negocio:
             else jogos_df["sk_jogo"].tolist()
         p = q.params([int(s) for s in sks], inicio, fim)
         k = q.kpis(p)
-        st.html(ui.kpis([
-            ("Reviews", fmt_int(k["reviews"]), f"{fmt_int(k['jogos'])} jogos no recorte"),
-            ("Recomendam", pct(num(k["pct_rec"])), "das reviews são positivas"),
-            ("Horas jogadas", f"{num(k['horas_mediana']):.1f} h".replace(".", ","), "mediana ao escrever"),
-            ("Votos úteis", fmt_int(k["votos_uteis"]), "engajamento da comunidade"),
-            ("Autores únicos", fmt_int(k["autores"]), "jogadores distintos"),
-            ("Palavras", f"{num(k['palavras_media']):.0f}", "média por review"),
-        ], destaque=1))
+        mensal = q.por_mes_pct(p)
+        pct_rec = num(k["pct_rec"])
+        # meses com volume irrisorio (ex.: uma review na virada do fuso) distorcem as series mensais
+        corte = max(10, 0.1 * float(mensal["reviews"].median())) if not mensal.empty else 0
+        serie = mensal[mensal["reviews"] >= corte]
 
-        g1, g2 = st.columns([3, 2])
-        with g1, st.container(key="card_mes"):
-            st.html(ui.secao("Volume mensal de reviews", "positivas vs. negativas"))
-            mes = q.por_mes(p)
-            ch = alt.Chart(mes).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, stroke="rgba(255,255,255,.9)",
-                                         strokeWidth=2).encode(
-                x=alt.X("ano_mes:O", title=None, axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("sum(reviews):Q", title=None),
-                color=alt.Color("recomendacao:N", scale=COR_RECOMENDACAO),
-                order=alt.Order("recomendacao:N", sort="descending"),
-                tooltip=[alt.Tooltip("ano_mes:O", title="Mês"), alt.Tooltip("recomendacao:N", title="Tipo"),
-                         alt.Tooltip("sum(reviews):Q", title="Reviews", format=",")])
-            st.altair_chart(tema(ch, 380), width="stretch")
+        # ---- linha 1: destaque escuro + medidor + numeros secundarios
+        c1, c2, c3 = st.columns([1.25, 1, 1.1])
+        with c1:
+            st.html(ui.cartao_escuro("Reviews analisadas", fmt_int(k["reviews"]),
+                                     f"{fmt_int(k['jogos'])} jogos · volume mensal no período",
+                                     [float(v) for v in serie["reviews"]]))
+        with c2:
+            st.html(ui.medidor(pct_rec, "Taxa de recomendação", pct(pct_rec), "das reviews são positivas"))
+        with c3:
+            st.html(ui.mini_numeros([
+                ("Horas jogadas (mediana)", f"{num(k['horas_mediana']):.1f} h".replace(".", ",")),
+                ("Votos úteis", fmt_int(k["votos_uteis"])),
+                ("Autores únicos", fmt_int(k["autores"])),
+                ("Palavras por review", f"{num(k['palavras_media']):.0f}"),
+            ]))
+
+        # ---- linha 2: tendencia da recomendacao + ranking por jogo
+        g1, g2 = st.columns([1.6, 1])
+        with g1, st.container(key="card_tendencia"):
+            if len(serie) >= 2:
+                variacao = (serie["pct_rec"].iloc[-1] - serie["pct_rec"].iloc[-2]) * 100
+                chip = ui.chip_delta(f"{variacao:+.1f} p.p.".replace(".", ",", 1), "último mês vs. anterior")
+            else:
+                chip = ""
+            st.html(ui.titulo_card("Tendência da recomendação", "% de reviews positivas por mês", chip))
+            minimo = max(0.0, float(serie["pct_rec"].min()) - 0.05) if not serie.empty else 0.0
+            maximo = min(1.0, float(serie["pct_rec"].max()) + 0.03) if not serie.empty else 1.0
+            base = alt.Chart(serie).encode(
+                x=alt.X("mes:T", title=None, axis=alt.Axis(format="%b/%y", labelAngle=0, tickCount="month",
+                                                          labelOverlap=True, grid=False)))
+            area = base.mark_area(
+                interpolate="monotone", clip=True, line={"color": MARINHO, "strokeWidth": 2.5},
+                color=alt.Gradient(gradient="linear", x1=1, x2=1, y1=0, y2=1,
+                                   stops=[alt.GradientStop(color="rgba(31,50,71,0.30)", offset=0),
+                                          alt.GradientStop(color="rgba(31,50,71,0.0)", offset=1)])
+            ).encode(y=alt.Y("pct_rec:Q", title=None, axis=alt.Axis(format="%", tickCount=5),
+                             scale=alt.Scale(domain=[minimo, maximo], zero=False)), y2=alt.datum(minimo))
+            pontos = base.mark_point(filled=True, size=70, color=MARINHO, stroke="white", strokeWidth=2, opacity=1).encode(
+                y="pct_rec:Q",
+                tooltip=[alt.Tooltip("mes:T", title="Mês", format="%B de %Y"),
+                         alt.Tooltip("pct_rec:Q", title="Recomendam", format=".1%"),
+                         alt.Tooltip("reviews:Q", title="Reviews", format=",")])
+            st.altair_chart(tema(area + pontos, 330), width="stretch")
         with g2, st.container(key="card_jogo"):
-            st.html(ui.secao("Taxa de recomendação", "por jogo"))
+            st.html(ui.secao("Recomendação por jogo", "do mais ao menos recomendado"))
             jg = q.por_jogo(p)
-            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=13).encode(
-                x=alt.X("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
-                y=alt.Y("jogo:N", sort="-x", title=None, axis=alt.Axis(labelLimit=220, labelOverlap=False)),
+            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=11).encode(
+                x=alt.X("pct_rec:Q", title=None, axis=alt.Axis(format="%", tickCount=4), scale=alt.Scale(domain=[0, 1])),
+                y=alt.Y("jogo:N", sort="-x", title=None, axis=alt.Axis(labelLimit=200, labelOverlap=False)),
                 tooltip=[alt.Tooltip("jogo:N", title="Jogo"), alt.Tooltip("pct_rec:Q", title="% recomendam", format=".1%"),
                          alt.Tooltip("reviews:Q", title="Reviews", format=","),
                          alt.Tooltip("horas_mediana:Q", title="Horas (mediana)", format=".1f")])
-            st.altair_chart(tema(ch, max(380, 30 * len(jg))), width="stretch")
+            st.altair_chart(tema(ch, max(330, 24 * len(jg))), width="stretch")
 
-        g3, g4, g5 = st.columns(3)
-        with g3, st.container(key="card_horas"):
-            st.html(ui.secao("Quem joga mais recomenda mais?", "% positivas por horas jogadas"))
+        # ---- linha 3: volume semanal em barras finas + horas + origem
+        g3, g4, g5 = st.columns([1.5, 1, 1])
+        with g3, st.container(key="card_semana"):
+            st.html(ui.secao("Volume semanal", "reviews publicadas por semana"))
+            sem = q.por_semana(p)
+            ch = alt.Chart(sem).mark_bar(width=5, cornerRadiusTopLeft=3, cornerRadiusTopRight=3, color=MARINHO).encode(
+                x=alt.X("semana:T", title=None, axis=alt.Axis(format="%b/%y", labelAngle=0, tickCount="month", grid=False)),
+                y=alt.Y("reviews:Q", title=None, axis=alt.Axis(tickCount=4)),
+                tooltip=[alt.Tooltip("semana:T", title="Semana de", format="%d/%m/%Y"),
+                         alt.Tooltip("reviews:Q", title="Reviews", format=","),
+                         alt.Tooltip("pct_rec:Q", title="Recomendam", format=".1%")])
+            st.altair_chart(tema(ch, 260), width="stretch")
+        with g4, st.container(key="card_horas"):
+            st.html(ui.secao("Horas jogadas × recomendação", "quem joga mais recomenda mais?"))
             fh = q.por_faixa_horas(p)
-            ch = alt.Chart(fh).mark_bar(cornerRadiusEnd=6, color=PETROLEO, width=alt.RelativeBandSize(0.5)).encode(
+            ch = alt.Chart(fh).mark_bar(cornerRadiusEnd=6, color=PETROLEO, width=alt.RelativeBandSize(0.45)).encode(
                 x=alt.X("faixa:N", sort=fh["faixa"].tolist(), title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False)),
-                y=alt.Y("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
+                y=alt.Y("pct_rec:Q", title=None, axis=alt.Axis(format="%", tickCount=4), scale=alt.Scale(domain=[0, 1])),
                 tooltip=[alt.Tooltip("faixa:N", title="Faixa"), alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam"),
                          alt.Tooltip("reviews:Q", format=",", title="Reviews")])
-            st.altair_chart(tema(ch, 320), width="stretch")
-        with g4, st.container(key="card_semana"):
-            st.html(ui.secao("Dia da semana", "quando os jogadores escrevem"))
-            ds = q.por_dia_semana(p)
-            ch = alt.Chart(ds).mark_bar(cornerRadiusEnd=6, color=MARINHO, width=alt.RelativeBandSize(0.5)).encode(
-                x=alt.X("dia_semana:N", sort=ds["dia_semana"].tolist(), title=None,
-                        axis=alt.Axis(labelAngle=0, labelExpr="slice(datum.label, 0, 3)")),
-                y=alt.Y("reviews:Q", title=None),
-                tooltip=[alt.Tooltip("dia_semana:N", title="Dia"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
-                         alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 320), width="stretch")
+            st.altair_chart(tema(ch, 260), width="stretch")
         with g5, st.container(key="card_origem"):
             st.html(ui.secao("Origem da cópia", "compra, key ou presente"))
             aq = q.por_aquisicao(p)
-            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=18).encode(
-                y=alt.Y("aquisicao:N", sort="-x", title=None, axis=alt.Axis(labelLimit=130)),
-                x=alt.X("reviews:Q", title=None),
+            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=6, color=ACO, height=16).encode(
+                y=alt.Y("aquisicao:N", sort="-x", title=None, axis=alt.Axis(labelLimit=150)),
+                x=alt.X("reviews:Q", title=None, axis=alt.Axis(tickCount=3)),
                 tooltip=[alt.Tooltip("aquisicao:N", title="Origem"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
                          alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 320), width="stretch")
+            st.altair_chart(tema(ch, 260), width="stretch")
 
         st.html(ui.secao("Gêneros", "volume e satisfação por gênero principal"))
         st.html(ui.tabela(q.por_genero(p), [("genero", "Gênero principal", "forte"), ("jogos", "Jogos", "int"),

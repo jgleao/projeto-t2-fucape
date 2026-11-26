@@ -172,3 +172,15 @@ def amostra_fato(n: int = 10) -> pd.DataFrame:
                          f.recommendationid, f.qtd_reviews, f.qtd_recomendacoes, f.votos_uteis,
                          f.minutos_jogados_review, f.minutos_jogados_total, f.score_utilidade::float
                   FROM dw.fato_review f ORDER BY f.sk_fato DESC LIMIT {int(n)}""")
+
+
+def por_semana(p: dict) -> pd.DataFrame:
+    return df(f"""SELECT date_trunc('week', t.data_completa)::date AS semana, sum(f.qtd_reviews) AS reviews,
+                         sum(f.qtd_recomendacoes)::float / sum(f.qtd_reviews) AS pct_rec
+                  {FILTRO} GROUP BY 1 ORDER BY 1""", p)
+
+
+def por_mes_pct(p: dict) -> pd.DataFrame:
+    return df(f"""SELECT to_date(t.ano_mes, 'YYYY-MM') AS mes, sum(f.qtd_reviews) AS reviews,
+                         sum(f.qtd_recomendacoes)::float / sum(f.qtd_reviews) AS pct_rec
+                  {FILTRO} GROUP BY 1 ORDER BY 1""", p)
