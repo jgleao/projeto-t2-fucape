@@ -33,8 +33,9 @@ from src.search_engine.benchmark import (CONSULTAS_PADRAO, ERROS_PADRAO, benchma
 from src.search_engine.motor import MotorBusca  # noqa: E402
 from src.search_engine.text import normalizar, reduzir  # noqa: E402
 
-st.set_page_config(page_title="Steam Reviews Intelligence", page_icon=":material/query_stats:", layout="wide")
-st.html(ui.CSS)
+st.set_page_config(page_title="Steam Reviews Intelligence", page_icon=":material/query_stats:", layout="wide",
+                   initial_sidebar_state="collapsed")
+st.html(ui.CSS + ui.CSS_TABELA)
 
 MARINHO, ACO, CORAL, PETROLEO = ui.MARINHO, ui.ACO, ui.CORAL, ui.PETROLEO
 COR_RECOMENDACAO = alt.Scale(domain=["Recomendado", "Não recomendado"], range=[MARINHO, CORAL])
@@ -48,9 +49,9 @@ def tema(chart: alt.Chart, altura: int = 300) -> alt.Chart:
     return (chart.properties(height=altura, background="transparent")
             .configure(font=ui.FONTE, locale=LOCALE_BR)
             .configure_axis(gridColor=ui.GRADE, gridDash=[2, 4], domain=False, ticks=False, labelColor=ui.TEXTO_SUAVE,
-                            titleColor=ui.TEXTO_SUAVE, labelFontSize=11, titleFontSize=11, titleFontWeight="normal",
+                            titleColor=ui.TEXTO_SUAVE, labelFontSize=13, titleFontSize=13, titleFontWeight="normal",
                             labelPadding=6)
-            .configure_legend(labelColor="#3b4a57", orient="top", title=None, symbolType="circle", labelFontSize=12)
+            .configure_legend(labelColor="#3b4a57", orient="top", title=None, symbolType="circle", labelFontSize=14, symbolSize=120)
             .configure_view(strokeWidth=0))
 
 
@@ -76,7 +77,7 @@ def status_airflow() -> dict[str, dict]:
     for dag_id in ("dag_ingestao_raw", "dag_consolidacao_dw"):
         try:
             r = requests.get(f"{url}/dags/{dag_id}/dagRuns", params={"order_by": "-execution_date", "limit": 8},
-                             auth=auth, timeout=3)
+                             auth=auth, timeout=8)
             r.raise_for_status()
             saida[dag_id] = {"ok": True, "runs": r.json().get("dag_runs", [])}
         except Exception as exc:  # noqa: BLE001
@@ -211,17 +212,17 @@ with aba_negocio:
                 order=alt.Order("recomendacao:N", sort="descending"),
                 tooltip=[alt.Tooltip("ano_mes:O", title="Mês"), alt.Tooltip("recomendacao:N", title="Tipo"),
                          alt.Tooltip("sum(reviews):Q", title="Reviews", format=",")])
-            st.altair_chart(tema(ch, 300), width="stretch")
+            st.altair_chart(tema(ch, 380), width="stretch")
         with g2, st.container(key="card_jogo"):
             st.html(ui.secao("Taxa de recomendação", "por jogo"))
             jg = q.por_jogo(p)
-            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=10).encode(
+            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=13).encode(
                 x=alt.X("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
-                y=alt.Y("jogo:N", sort="-x", title=None, axis=alt.Axis(labelLimit=180, labelOverlap=False)),
+                y=alt.Y("jogo:N", sort="-x", title=None, axis=alt.Axis(labelLimit=220, labelOverlap=False)),
                 tooltip=[alt.Tooltip("jogo:N", title="Jogo"), alt.Tooltip("pct_rec:Q", title="% recomendam", format=".1%"),
                          alt.Tooltip("reviews:Q", title="Reviews", format=","),
                          alt.Tooltip("horas_mediana:Q", title="Horas (mediana)", format=".1f")])
-            st.altair_chart(tema(ch, max(300, 26 * len(jg))), width="stretch")
+            st.altair_chart(tema(ch, max(380, 30 * len(jg))), width="stretch")
 
         g3, g4, g5 = st.columns(3)
         with g3, st.container(key="card_horas"):
@@ -232,7 +233,7 @@ with aba_negocio:
                 y=alt.Y("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
                 tooltip=[alt.Tooltip("faixa:N", title="Faixa"), alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam"),
                          alt.Tooltip("reviews:Q", format=",", title="Reviews")])
-            st.altair_chart(tema(ch, 250), width="stretch")
+            st.altair_chart(tema(ch, 320), width="stretch")
         with g4, st.container(key="card_semana"):
             st.html(ui.secao("Dia da semana", "quando os jogadores escrevem"))
             ds = q.por_dia_semana(p)
@@ -242,21 +243,20 @@ with aba_negocio:
                 y=alt.Y("reviews:Q", title=None),
                 tooltip=[alt.Tooltip("dia_semana:N", title="Dia"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
                          alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 250), width="stretch")
+            st.altair_chart(tema(ch, 320), width="stretch")
         with g5, st.container(key="card_origem"):
             st.html(ui.secao("Origem da cópia", "compra, key ou presente"))
             aq = q.por_aquisicao(p)
-            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=14).encode(
+            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=18).encode(
                 y=alt.Y("aquisicao:N", sort="-x", title=None, axis=alt.Axis(labelLimit=130)),
                 x=alt.X("reviews:Q", title=None),
                 tooltip=[alt.Tooltip("aquisicao:N", title="Origem"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
                          alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 250), width="stretch")
+            st.altair_chart(tema(ch, 320), width="stretch")
 
         st.html(ui.secao("Gêneros", "volume e satisfação por gênero principal"))
-        st.dataframe(q.por_genero(p), hide_index=True, width="stretch", column_config={
-            "genero": "Gênero principal", "jogos": "Jogos", "reviews": st.column_config.NumberColumn("Reviews", format="%d"),
-            "pct_rec": st.column_config.ProgressColumn("% recomendam", min_value=0, max_value=1, format="percent")})
+        st.html(ui.tabela(q.por_genero(p), [("genero", "Gênero principal", "forte"), ("jogos", "Jogos", "int"),
+                                            ("reviews", "Reviews", "int"), ("pct_rec", "Recomendam", "barra")]))
 
         st.html(ui.secao("As reviews mais úteis", "segundo os votos da própria comunidade"))
         uteis = q.mais_uteis(p)
@@ -351,16 +351,29 @@ with aba_eng:
                     ("Novas / alteradas", f"{fmt_int(ing['novas'].sum())} / {fmt_int(ing['alteradas'].sum())}",
                      "upsert idempotente"),
                 ]))
-                st.dataframe(ing, hide_index=True, width="stretch")
+                st.html(ui.tabela(ing, [
+                    ("jogo", "Jogo", "forte"), ("entidade", "Entidade", "txt"), ("status", "Status", "estado"),
+                    ("paginas", "Páginas", "int"), ("recebidas", "Recebidas", "int"), ("novas", "Novas", "int"),
+                    ("alteradas", "Alteradas", "int"), ("requisicoes", "Requisições", "int"),
+                    ("retentativas", "Retentativas", "int"), ("respostas_429", "HTTP 429", "int"),
+                    ("motivo_parada", "Motivo da parada", "txt"), ("segundos", "Duração (s)", "num")]))
             etl = q.historico_etl()
             if not etl.empty:
                 st.html(ui.secao("DAG 2 · prova de idempotência",
                                  "reexecutar mantém total_fato e soma_votos_uteis constantes"))
-                st.dataframe(etl, hide_index=True, width="stretch")
+                st.html(ui.tabela(etl, [
+                    ("run_id", "Execução", "forte"), ("finalizado_em", "Finalizada", "data"), ("status", "Status", "estado"),
+                    ("linhas_staging", "Staging", "int"), ("fato_inseridas", "Inseridas", "int"),
+                    ("fato_atualizadas", "Atualizadas", "int"), ("total_fato", "Total na fato", "int"),
+                    ("soma_votos_uteis", "Σ votos úteis", "int"), ("checks", "Checks de qualidade", "checks")]))
             hist = q.historico_ingestao()
             if not hist.empty:
-                with st.expander("Histórico do DAG 1 (camada raw)"):
-                    st.dataframe(hist, hide_index=True, width="stretch")
+                st.html(ui.secao("DAG 1 · histórico", "execuções recentes da ingestão"))
+                st.html(ui.tabela(hist, [
+                    ("run_id", "Execução", "forte"), ("inicio", "Início", "data"), ("ok", "Jogos ok", "int"),
+                    ("erros", "Erros", "int"), ("recebidas", "Recebidas", "int"), ("novas", "Novas", "int"),
+                    ("alteradas", "Alteradas", "int"), ("retentativas", "Retentativas", "int"),
+                    ("respostas_429", "HTTP 429", "int")]))
         except Exception as exc:  # noqa: BLE001
             st.info(f"Tabelas de auditoria ainda não existem ({exc.__class__.__name__}). Rode os DAGs.")
 
@@ -415,16 +428,15 @@ with aba_eng:
                 color=alt.Color("algoritmo:N", sort=ordem_algo,
                                 scale=alt.Scale(domain=ordem_algo, range=[CORAL, ACO, MARINHO, PETROLEO])),
                 tooltip=["consulta", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
-            st.altair_chart(tema(ch, 36 * len(linhas) + 40), width="stretch")
+            st.altair_chart(tema(ch, 44 * len(linhas) + 50), width="stretch")
 
-        with st.expander("Tabela completa por consulta"):
-            st.dataframe(pd.DataFrame([{
-                "Consulta": ln["consulta"], "Candidatos": ln["candidatos"],
-                "Exaustivo (ms)": ln["exaustivo_ms"], "TAAT+heap (ms)": ln["taat_heap_ms"], "WAND (ms)": ln["wand_ms"],
-                "WAND+CL (ms)": ln["wand_campeoes_ms"], "BMW (ms)": ln["bmw_ms"],
-                "Δ% WAND+CL": ln["wand_campeoes_delta_pct"], "Speedup": ln["wand_campeoes_speedup"],
-                "Poda %": ln["wand_campeoes_poda_docs_pct"], "Top-K igual": "sim" if ln["wand_campeoes_mesmo_topk"] else "não",
-            } for ln in linhas]), hide_index=True, width="stretch")
+        st.html(ui.secao("Resultado por consulta", "todas as medições do benchmark"))
+        st.html(ui.tabela(linhas, [
+            ("consulta", "Consulta", "forte"), ("candidatos", "Candidatos", "int"),
+            ("exaustivo_ms", "Exaustivo", "ms"), ("taat_heap_ms", "TAAT + heap", "ms"), ("wand_ms", "WAND", "ms"),
+            ("wand_campeoes_ms", "WAND + CL", "ms"), ("bmw_ms", "Block-Max", "ms"),
+            ("wand_campeoes_speedup", "Speedup", "x"), ("wand_campeoes_poda_docs_pct", "Poda", "pct100"),
+            ("wand_campeoes_mesmo_topk", "Top-K igual", "bool")]))
 
         escala = st.session_state.get("escala") or []
         if escala:
@@ -441,7 +453,7 @@ with aba_eng:
                                                                             "WAND + Champion Lists"],
                                                                     range=[CORAL, MARINHO])),
                     tooltip=["documentos", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
-                st.altair_chart(tema(ch, 280), width="stretch")
+                st.altair_chart(tema(ch, 340), width="stretch")
 
     if "bench_ort" in st.session_state:
         linhas_o, resumo_o = st.session_state["bench_ort"]
@@ -450,23 +462,39 @@ with aba_eng:
                          resumo_o["dois_estagios_ms_medio"], resumo_o["speedup"], resumo_o["delta_pct"],
                          "compara com o vocabulário inteiro",
                          f"mesma sugestão em {resumo_o['concordancia_pct']:.0f}% dos casos"))
-        with st.expander("Detalhe por palavra"):
-            st.dataframe(pd.DataFrame(linhas_o), hide_index=True, width="stretch")
+        st.html(ui.tabela(linhas_o, [
+            ("digitado", "Digitado", "forte"), ("sugestao_dois_estagios", "Sugestão", "txt"),
+            ("forca_bruta_ms", "Força bruta", "ms"), ("dois_estagios_ms", "2 estágios", "ms"), ("speedup", "Speedup", "x"),
+            ("candidatos_levenshtein", "Candidatos", "int"), ("vocabulario", "Vocabulário", "int"),
+            ("mesma_sugestao", "Mesma sugestão", "bool")]))
 
-    with st.expander("Estatísticas do índice invertido"):
-        st.json(motor.indice.estatisticas())
+    est = motor.indice.estatisticas()
+    st.html(ui.secao("Índice invertido", "estruturas usadas pela busca"))
+    st.html(ui.kpis([
+        ("Documentos", fmt_int(est["documentos"]), "reviews indexadas"),
+        ("Vocabulário", fmt_int(est["vocabulario"]), "termos distintos"),
+        ("Postagens", fmt_int(est["postagens"]), "pares termo-documento"),
+        ("Blocos", fmt_int(est["blocos"]), f"de {est['tamanho_bloco']} postagens (Block-Max)"),
+        ("Memória", f"{est['memoria_postagens_mb']:.1f} MB".replace(".", ","), "listas de postagens"),
+    ]))
 
 # =============================================== 4. MODELO DIMENSIONAL ==
 with aba_modelo:
     st.html('<div class="painel grao"><b>Granularidade da fato dw.fato_review:</b> cada linha representa '
-            '<b>uma review publicada por um jogador sobre um jogo na Steam, na data em que a review foi criada.</div>')
+            'uma review publicada por um jogador sobre um jogo na Steam, na data em que a review foi criada.</div>')
     st.html(ui.secao("Star Schema", "surrogate keys inteiras · membro desconhecido −1 · FKs reais"))
     st.html(ui.diagrama_estrela())
     if dw_ok:
         try:
             st.html(ui.secao("Volume por camada", "bronze (raw) → staging → Data Warehouse"))
-            st.dataframe(q.contagem_tabelas(), hide_index=True, width="stretch")
+            st.html(ui.tabela(q.contagem_tabelas(), [("camada", "Camada", "camada"), ("tabela", "Tabela", "forte"),
+                                                     ("papel", "Papel", "txt"), ("linhas", "Linhas", "int")]))
             st.html(ui.secao("Amostra da fato", "só chaves substitutas e métricas"))
-            st.dataframe(q.amostra_fato(), hide_index=True, width="stretch")
+            st.html(ui.tabela(q.amostra_fato(), [
+                ("sk_fato", "sk_fato", "int"), ("sk_tempo", "sk_tempo", "int"), ("sk_jogo", "sk_jogo", "int"),
+                ("sk_autor", "sk_autor", "int"), ("sk_perfil", "sk_perfil", "int"), ("sk_review", "sk_review", "int"),
+                ("recommendationid", "recommendationid", "txt"), ("qtd_reviews", "qtd_reviews", "int"),
+                ("qtd_recomendacoes", "recomendações", "int"), ("votos_uteis", "votos_uteis", "int"),
+                ("minutos_jogados_review", "min. na review", "int"), ("score_utilidade", "score", "num")]))
         except Exception as exc:  # noqa: BLE001
             st.info(f"Tabelas ainda não criadas ({exc.__class__.__name__}).")
