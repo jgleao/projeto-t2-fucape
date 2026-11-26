@@ -1,0 +1,177 @@
+# =============================================================================
+# T2 FUCAPE - Pipeline Steam Reviews (Airflow + Data Warehouse + Painel)
+# Sobe: Postgres de metadados do Airflow, Postgres do Data Warehouse,
+#       Airflow (init, webserver, scheduler, triggerer) e o painel Streamlit.
+# Uso:  docker compose up -d   ->  Airflow em http://localhost:8080 (airflow/airflow)
+#                                  Painel  em http://localhost:8501
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.5-python3.12
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: "America/Sao_Paulo"
+    AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "America/Sao_Paulo"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "t2-fucape-segredo-local"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    # Torna o pacote src/ importavel pelas DAGs
+    PYTHONPATH: /opt/airflow
+    # Conexao com o Data Warehouse (container dw-postgres)
+    DW_HOST: dw-postgres
+    DW_PORT: "5432"
+    DW_DB: dw
+    DW_USER: dw
+    DW_PASSWORD: dw
+    # Parametros de coleta (podem ser sobrescritos no .env)
+    STEAM_APP_IDS: ${STEAM_APP_IDS:-}
+    STEAM_IDIOMA: ${STEAM_IDIOMA:-brazilian}
+    STEAM_MAX_PAGINAS_INICIAL: ${STEAM_MAX_PAGINAS_INICIAL:-25}
+    STEAM_MAX_PAGINAS_INCREMENTAL: ${STEAM_MAX_PAGINAS_INCREMENTAL:-5}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - airflow-logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    airflow-postgres:
+      condition: service_healthy
+    dw-postgres:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------- bancos
+  airflow-postgres:
+    image: postgres:16
+    container_name: t2-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  dw-postgres:
+    image: postgres:16
+    container_name: t2-dw-postgres
+    environment:
+      POSTGRES_USER: dw
+      POSTGRES_PASSWORD: dw
+      POSTGRES_DB: dw
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    ports:
+      - "5433:5432"   # acesso do host: localhost:5433 (DBeaver, psql, painel local)
+    volumes:
+      - dw-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dw", "-d", "dw"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  # --------------------------------------------------------------- airflow
+  airflow-init:
+    <<: *airflow-common
+    container_name: t2-airflow-init
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: t2-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: t2-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    container_name: t2-airflow-triggerer
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ---------------------------------------------------------------- painel
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    container_name: t2-dashboard
+    environment:
+      DW_HOST: dw-postgres
+      DW_PORT: "5432"
+      DW_DB: dw
+      DW_USER: dw
+      DW_PASSWORD: dw
+      AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      AIRFLOW_API_USER: airflow
+      AIRFLOW_API_PASSWORD: airflow
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app:/app/app
+      - ./src:/app/src
+      - ./docs:/app/docs
+    depends_on:
+      dw-postgres:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  airflow-pgdata:   # metadados do Airflow (execucoes, logs de tarefas, usuarios)
+  dw-pgdata:        # camada raw (bronze) + staging + Data Warehouse (star schema)
+  airflow-logs:     # logs das tarefas
