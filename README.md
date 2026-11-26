@@ -250,52 +250,58 @@ Método: média de N execuções com `time.perf_counter()`, 1 aquecimento, colet
 
 | Consulta | Candidatos | Exaustivo (ms) | WAND (ms) | **WAND + CL (ms)** | BMW (ms) | Δ% | Speedup | Poda | Top-K = |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|:---:|
-| jogo travando muito | 74.352 | 25,21 | 5,58 | **0,25** | 0,40 | 99,0% | **99×** | 99,9% | ✅ |
-| melhor jogo que ja joguei | 72.497 | 22,19 | 6,48 | **0,31** | 0,43 | 98,6% | **71×** | 99,9% | ✅ |
-| jogar com amigos | 30.838 | 17,62 | 3,71 | **0,14** | 0,28 | 99,2% | **126×** | 99,8% | ✅ |
-| vale a pena comprar | 14.530 | 7,77 | 1,18 | **1,10** | 2,14 | 85,9% | 7,1× | 97,7% | ✅ |
-| otimizacao ruim fps baixo | 17.187 | 9,34 | 5,06 | **4,39** | 3,20 | 53,0% | 2,1× | 91,4% | ✅ |
-| servidor lag multiplayer | 714 | 3,16 | 0,35 | **0,24** | 0,33 | 92,4% | 13,1× | 76,3% | ✅ |
-| preco caro promocao | 2.395 | 6,42 | 0,44 | **0,77** | 1,08 | 88,0% | 8,4× | 84,6% | ✅ |
-| *(+5 consultas em `docs/resultados_benchmark.md`)* | | | | | | | | | |
+| jogo travando muito | 74.352 | 28,28 | 9,51 | **0,58** | 0,63 | 98,0% | 49× | 99,9% | ✅ |
+| melhor jogo que ja joguei | 72.497 | 26,77 | 9,19 | **0,37** | 0,45 | 98,6% | 72× | 99,9% | ✅ |
+| jogar com amigos | 30.838 | 14,65 | 3,74 | **0,21** | 0,34 | 98,6% | 69× | 99,8% | ✅ |
+| otimizacao ruim fps baixo | 17.187 | 12,05 | 7,55 | **6,28** | 3,74 | 47,9% | 1,9× | 91,3% | ✅ |
+| vale a pena comprar | 14.530 | 9,94 | 2,20 | **1,93** | 3,34 | 80,6% | 5,2× | 97,7% | ✅ |
+| bugs crash fechando sozinho | 4.090 | 6,93 | 2,67 | **3,25** | 5,87 | 53,1% | 2,1× | 93,9% | ✅ |
+| preco caro promocao | 2.395 | 5,68 | 1,07 | **0,51** | 0,66 | 91,1% | 11,2× | 84,6% | ✅ |
+| historia emocionante personagens | 944 | 3,81 | 0,91 | **0,83** | 1,19 | 78,1% | 4,6× | 45,4% | ✅ |
+| servidor lag multiplayer | 714 | 3,13 | 0,45 | **0,51** | 0,34 | 83,7% | 6,1× | 76,3% | ✅ |
+| graficos lindos mundo aberto | 710 | 5,00 | 1,00 | **0,61** | 0,58 | 87,7% | 8,2× | 39,3% | ✅ |
+| musica trilha sonora incrivel | 657 | 5,10 | 0,70 | **0,54** | 1,16 | 89,4% | 9,4× | 64,7% | ✅ |
+| cheater hacker banido | 306 | 3,02 | 0,39 | **0,56** | 0,67 | 81,5% | 5,4× | 0,0% | ✅ |
 
 | Algoritmo | Tempo médio | Δ% | Speedup | Poda | Memória/consulta |
 |---|---:|---:|---:|---:|---:|
-| BM25 exaustivo (baseline) | 8,94 ms | — | 1,0× | 0% | 4.936 KB |
-| TAAT + heap (ablação) | 4,19 ms | 53,1% | 2,1× | 0% | — |
-| WAND clássico | 2,20 ms | 75,4% | 4,1× | 91,6% | 2 KB |
-| **WAND + Champion Lists** | **0,89 ms** | **90,1%** | **10,1×** | **98,1%** | **16 KB** |
-| Block-Max WAND | 1,16 ms | 87,1% | 7,7× | 98,8% | 16 KB |
+| BM25 exaustivo (baseline) | 10,36 ms | — | 1,0× | 0% | 4.936 KB |
+| TAAT + heap (ablação) | 6,25 ms | 39,7% | 1,7× | 0% | — |
+| WAND clássico | 3,28 ms | 68,3% | 3,2× | 91,6% | 2 KB |
+| **WAND + Champion Lists** | **1,35 ms** | **87,0%** | **7,7×** | **98,0%** | **16 KB** |
+| Block-Max WAND | 1,58 ms | 84,7% | 6,5× | 98,7% | 16 KB |
 
 ### 5.2 Correção ortográfica: 2 estágios vs. Levenshtein força-bruta
 
 | Métrica | Força bruta | 2 estágios |
 |---|---:|---:|
-| Tempo médio por palavra | 177,4 ms | **0,31 ms** |
+| Tempo médio por palavra | 225,6 ms | **0,36 ms** |
 | Candidatos avaliados com Levenshtein | 19.999 (vocabulário inteiro) | 1 a 3 |
-| Δ% / Speedup | — | **99,8% / 564×** |
+| Δ% / Speedup | — | **99,8% / 624×** |
 | Mesma sugestão que a força bruta | — | **100%** (12/12) |
-| Autocompletar por prefixo (Trie) | — | 0,0003 ms |
+| Autocompletar por prefixo (Trie) | — | 0,0004 ms |
 
 ### 5.3 Escalabilidade
 
 | Documentos | Exaustivo | WAND + CL | Speedup |
 |---:|---:|---:|---:|
-| 5.000 | 0,36 ms | 0,53 ms | 0,7× |
-| 10.000 | 0,83 ms | 0,60 ms | 1,4× |
-| 20.000 | 1,49 ms | 0,20 ms | 7,3× |
-| 40.000 | 3,11 ms | 0,38 ms | 8,1× |
-| 80.000 | 7,04 ms | 0,88 ms | 8,0× |
+| 5.000 | 0,54 ms | 1,15 ms | 0,5× |
+| 10.000 | 1,25 ms | 1,29 ms | 1,0× |
+| 20.000 | 2,22 ms | 0,37 ms | 6,0× |
+| 40.000 | 5,02 ms | 0,71 ms | 7,1× |
+| 80.000 | 10,52 ms | 1,35 ms | 7,8× |
 
 ### 5.4 Interpretação
 
-* **O ganho vem de não olhar para o que não pode ganhar.** Em consultas com termos frequentes ("jogo", "jogar", "melhor"), o exaustivo pontua dezenas de milhares de candidatos; o WAND aquecido pontua algumas dezenas e salta o resto por busca binária. Daí os speedups de **70× a 126×**, com **99,9% de poda**.
-* **A ablação separa as duas fontes de ganho.** Trocar a ordenação total por heap (TAAT + heap) dá 2,1×, porque elimina o `O(N log N)` e a memória `O(N)`. A poda do WAND leva a 4,1×, e o aquecimento por Champion Lists a **10,1×**. A memória por consulta cai de ~5 MB para ~16 KB.
-* **Champion Lists foram a peça decisiva.** O WAND clássico começa com θ = 0 e pontua quase tudo até o heap encher. Com o heap aquecido, a poda age desde o primeiro documento: o tempo médio cai de 2,20 ms para 0,89 ms.
-* **Block-Max WAND poda mais (98,8%), mas não é o mais rápido aqui.** Em Python puro o custo extra por iteração (ponteiros de bloco) come parte do ganho. Em C++/Rust, onde cada iteração custa nanossegundos, o BMW tende a vencer. É um trade-off clássico entre custo da poda e economia de avaliações.
-* **Há um ponto de cruzamento.** Com 5 mil documentos o overhead do WAND não compensa (0,7×). A partir de ~20 mil a vantagem se estabiliza em ~8×, porque o custo do exaustivo cresce com N e o do WAND depende quase só de K e dos termos raros.
-* **Sem perda de qualidade.** O Top-K de todos os algoritmos otimizados é **idêntico** ao do exaustivo em 100% das consultas do benchmark e nas 480 consultas aleatórias (K de 1 a 50) e nos 60 índices com empates propositais da suíte de testes, comparando os documentos retornados e não só os scores.
-* **Correção ortográfica:** o índice de bigramas reduz os candidatos de ~20 mil para menos de 10 (>99,9% de redução), o que torna a correção 500× mais rápida **com a mesma sugestão** da força bruta. Isso viabiliza o "Você quis dizer" em tempo real a cada busca.
+* **O ganho vem de não olhar para o que não pode ganhar.** Em consultas com termos frequentes ("jogo", "jogar", "melhor"), o exaustivo pontua dezenas de milhares de candidatos; o WAND aquecido pontua algumas dezenas e salta o resto por busca binária. Daí os speedups de **49× a 72×**, com ~99,9% de poda.
+* **A ablação separa as fontes de ganho.** Trocar a ordenação total por heap (TAAT + heap) dá 1,7×, porque elimina o `O(N log N)` e a memória `O(N)`. A poda do WAND leva a 3,2×, e o aquecimento por Champion Lists a **7,7×**. A memória por consulta cai de ~4 MB para ~16 KB.
+* **Champion Lists foram a peça decisiva.** O WAND clássico começa com θ = 0 e pontua quase tudo até o heap encher. Com o heap aquecido, a poda age desde o primeiro documento: o tempo médio cai de 3,28 ms para 1,35 ms.
+* **Block-Max WAND poda mais (98,7%), mas não é o mais rápido aqui.** Em Python puro o custo extra por iteração (ponteiros de bloco) come parte do ganho. Em C++/Rust, onde cada iteração custa nanossegundos, o BMW tende a vencer. É um trade-off clássico entre custo da poda e economia de avaliações.
+* **Nem toda consulta ganha igual.** Consultas só com termos de frequência média (ex.: "otimizacao ruim fps baixo") ficam em ~1,9×, porque nenhum termo domina o limite superior e a poda é menor.
+* **Há um ponto de cruzamento.** Com 5.000 documentos o overhead do WAND não compensa (0,5×). A partir de ~20.000 a vantagem aparece e cresce com N, porque o custo do exaustivo cresce com N e o do WAND depende quase só de K e dos termos raros.
+* **Sem perda de qualidade.** O Top-K de todos os algoritmos otimizados é **idêntico** ao do exaustivo (mesmos documentos, mesma ordem, mesmos scores) em 100% das consultas do benchmark e em toda a suíte de testes, incluindo os índices montados para gerar empates.
+* **Correção ortográfica:** o índice de bigramas reduz os candidatos de ~19 mil para menos de 10, o que torna a correção 624× mais rápida **com a mesma sugestão** da força bruta. Esse número é otimista: o vocabulário sintético tem poucas palavras parecidas entre si, e no corpus real há mais candidatos por palavra, então o ganho tende a ser menor (ainda de duas ordens de grandeza).
+* **Medição ruidosa.** As medições foram feitas com o Docker (Airflow + Postgres) rodando na mesma máquina. Os tempos absolutos variam entre execuções; as razões entre algoritmos são o resultado estável.
 
 ---
 
