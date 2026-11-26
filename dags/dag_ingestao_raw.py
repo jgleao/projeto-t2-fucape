@@ -91,24 +91,30 @@ def dag_ingestao_raw():
                                 respostas_429=http.stats.respostas_429)
         return {"app_id": app_id, "alterado": alterou}
 
-    @task(max_active_tis_per_dagrun=2)
+    # ALL_DONE: a falha nos detalhes de um jogo nao impede a coleta de reviews de nenhum jogo
+    @task(max_active_tis_per_dagrun=2, trigger_rule=TriggerRule.ALL_DONE)
     def coletar_reviews_jogo(app_id: int) -> dict:
         ctx = get_current_context()
         params = ctx["params"]
         run_id = ctx["run_id"]
         inicio = datetime.now(timezone.utc)
 
-        watermark = raw_store.watermark_reviews(app_id)
-        if watermark is None:
-            max_paginas, parar_antes = params["max_paginas_inicial"], None
-        else:
+        # Estado de cobertura explicito: uma carga inicial interrompida continua em
+        # modo inicial no retry (o upsert torna o recomeco seguro), e o watermark so
+        # avanca quando a janela inteira foi coberta.
+        carga_completa, watermark = raw_store.ler_estado(app_id)
+        incremental = carga_completa and watermark is not None
+        if incremental:
             max_paginas = params["max_paginas_incremental"]
             parar_antes = watermark - CFG.sobreposicao_segundos
+        else:
+            max_paginas, parar_antes = params["max_paginas_inicial"], None
 
         http = ClienteHttpResiliente()
         api = SteamApi(http)
         pag = ResultadoPaginacao()
         inseridas = atualizadas = 0
+        mais_nova = 0
         try:
             for pagina in api.paginas_reviews(app_id, idioma=params["idioma"], por_pagina=CFG.reviews_por_pagina,
                                               max_paginas=max_paginas, parar_antes_de_ts=parar_antes,
@@ -116,6 +122,7 @@ def dag_ingestao_raw():
                 ins, upd = raw_store.upsert_reviews(app_id, pagina.reviews, run_id)
                 inseridas += ins
                 atualizadas += upd
+                mais_nova = max([mais_nova] + [int(r.get("timestamp_created") or 0) for r in pagina.reviews])
                 log.info("app %s pagina %d: %d reviews (%d novas, %d alteradas)",
                          app_id, pagina.numero, len(pagina.reviews), ins, upd)
         except Exception as exc:
@@ -126,8 +133,19 @@ def dag_ingestao_raw():
                                     motivo_parada="erro", mensagem=str(exc)[:500])
             raise
 
+        # Na carga inicial, o limite de paginas e a profundidade configurada do historico.
+        # No incremental, parar pelo limite significa que nao alcancamos o watermark:
+        # entao ele NAO avanca, e a proxima execucao recomeca da janela antiga, sem lacuna.
+        cobertura_ok = (not incremental) or not pag.motivo_parada.startswith("limite")
+        if cobertura_ok:
+            raw_store.salvar_estado(app_id, True, mais_nova or watermark)
+        else:
+            pag.motivo_parada += " (cobertura incompleta: watermark mantido)"
+            log.warning("app %s: limite de %d paginas antes do watermark; aumente max_paginas_incremental",
+                        app_id, max_paginas)
+
         resumo = {
-            "app_id": app_id, "modo": "incremental" if watermark else "carga_inicial",
+            "app_id": app_id, "modo": "incremental" if incremental else "carga_inicial",
             "paginas": pag.paginas, "recebidas": pag.reviews, "inseridas": inseridas,
             "atualizadas": atualizadas, "inalteradas": pag.reviews - inseridas - atualizadas,
             "retentativas": http.stats.retentativas, "respostas_429": http.stats.respostas_429,
@@ -142,14 +160,19 @@ def dag_ingestao_raw():
         return resumo
 
     @task(outlets=[RAW_REVIEWS_DATASET], trigger_rule=TriggerRule.ALL_DONE)
-    def publicar_dataset_raw(resumos: list[dict] | None) -> dict:
+    def publicar_dataset_raw(resumos: list[dict] | None, jogos: list[int]) -> dict:
         """Emite o Dataset que dispara o DAG 2. Tolera falha parcial (alguns jogos),
         mas falha se nenhum jogo foi coletado."""
         validos = [r for r in (resumos or []) if r]
         if not validos:
             raise RuntimeError("Nenhum jogo foi coletado com sucesso nesta execucao")
+        faltando = sorted(set(jogos) - {r["app_id"] for r in validos})
+        if faltando:
+            log.warning("Falha parcial: %d jogo(s) sem coleta nesta execucao: %s "
+                        "(detalhes em raw.ingestion_log; o proximo run tenta de novo)", len(faltando), faltando)
         total = {
             "jogos_ok": len(validos),
+            "jogos_com_falha": faltando,
             "reviews_recebidas": sum(r["recebidas"] for r in validos),
             "reviews_novas": sum(r["inseridas"] for r in validos),
             "reviews_alteradas": sum(r["atualizadas"] for r in validos),
@@ -163,8 +186,9 @@ def dag_ingestao_raw():
     preparo >> jogos
     detalhes = coletar_detalhes_jogo.expand(app_id=jogos)
     reviews = coletar_reviews_jogo.expand(app_id=jogos)
-    publicacao = publicar_dataset_raw(reviews)
-    detalhes >> publicacao
+    # detalhes antes de reviews: nunca mais de 2 clientes HTTP simultaneos (polidez)
+    detalhes >> reviews
+    publicar_dataset_raw(reviews, jogos)
 
 
 dag_ingestao_raw()

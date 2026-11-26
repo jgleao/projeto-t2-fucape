@@ -26,9 +26,14 @@ JOGOS_PADRAO: dict[int, str] = {
 }
 
 
-def _env_int(nome: str, padrao: int) -> int:
+def _env_int(nome: str, padrao: int, minimo: int | None = None, maximo: int | None = None) -> int:
     valor = os.getenv(nome, "").strip()
-    return int(valor) if valor else padrao
+    numero = int(valor) if valor else padrao
+    if minimo is not None:
+        numero = max(minimo, numero)
+    if maximo is not None:
+        numero = min(maximo, numero)
+    return numero
 
 
 def app_ids_configurados() -> list[int]:
@@ -43,8 +48,11 @@ def app_ids_configurados() -> list[int]:
 class ConfigColeta:
     idioma: str = os.getenv("STEAM_IDIOMA", "brazilian")
     reviews_por_pagina: int = 100  # maximo aceito pela API
-    max_paginas_inicial: int = _env_int("STEAM_MAX_PAGINAS_INICIAL", 25)
-    max_paginas_incremental: int = _env_int("STEAM_MAX_PAGINAS_INCREMENTAL", 5)
+    # limitados a [1, 200] para casar com o Param do DAG (valor fora quebraria o parse)
+    max_paginas_inicial: int = _env_int("STEAM_MAX_PAGINAS_INICIAL", 25, 1, 200)
+    # teto de seguranca do incremental: se for atingido antes do watermark, o
+    # watermark nao avanca (sem lacunas); 20 paginas = 2.000 reviews novas por jogo/dia
+    max_paginas_incremental: int = _env_int("STEAM_MAX_PAGINAS_INCREMENTAL", 20, 1, 200)
     # Sobreposicao da janela incremental: reprocessa 2 dias antes do watermark
     # para capturar edicoes recentes. Como a carga e um upsert, isso nao duplica.
     sobreposicao_segundos: int = 2 * 24 * 3600

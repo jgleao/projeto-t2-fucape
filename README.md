@@ -15,9 +15,9 @@
 > **Destaques**
 > * Até **40 mil reviews reais** em PT-BR na primeira carga (16 jogos × até 2.500 reviews cada), coletadas via API pública com paginação por cursor, *rate limit* e *exponential backoff* com jitter.
 > * Modelo estrela com **5 dimensões** (incluindo uma *junk dimension* e membros desconhecidos `-1`), surrogate keys inteiras, FKs reais e **6 checks de qualidade** que barram a carga.
-> * **3 técnicas de RI** implementadas do zero em Python puro, todas com **prova automática de segurança**: o Top-K otimizado é comparado com o exaustivo em 480 consultas aleatórias × 4 algoritmos nos testes.
+> * **3 técnicas de RI** implementadas do zero em Python puro, todas com **prova automática de segurança**: o Top-K otimizado (documentos **e** scores, com desempate idêntico) é comparado com o exaustivo em 480 consultas aleatórias e em 60 índices montados para gerar empates.
 > * Idempotência **comprovada por código**: teste de integração contra Postgres real no CI e script de impressão digital (MD5) do DW antes e depois do reprocessamento.
-> * **62 testes automatizados**, lint PEP 8 (ruff) e GitHub Actions que valida o `docker-compose.yml` e importa as DAGs na imagem oficial do Airflow.
+> * **124 testes automatizados**, lint PEP 8 (ruff) e GitHub Actions que valida o `docker-compose.yml` e importa as DAGs na imagem oficial do Airflow.
 
 ---
 
@@ -94,13 +94,15 @@ flowchart TD
 
 | Mecanismo | Implementação |
 |---|---|
-| **Paginação por cursor** | `cursor=*` → `cursor` devolvido pela API, com `filter=recent` (mais novas primeiro). Para em página vazia, **cursor repetido**, página incompleta, watermark alcançado ou limite de páginas. |
+| **Paginação por cursor** | `cursor=*` → `cursor` devolvido pela API, com `filter=recent` (mais novas primeiro). Para em página vazia, **cursor repetido**, watermark alcançado ou limite de páginas. Uma página incompleta no meio **não** encerra a coleta, porque a Steam filtra depois de paginar. |
 | **HTTP 429 (rate limit)** | Retentativa com **exponential backoff + equal jitter**: `teto = min(60s, 1s·2ⁿ)`, `espera = teto/2 + U(0, teto/2)`. Se vier `Retry-After`, a espera nunca é menor que ele. |
 | **Instabilidade** | 500/502/503/504, timeout, queda de conexão e "200 com HTML" são retentados (até 6×). |
 | **Erros permanentes** | 400/403/404 falham na hora (não adianta insistir). |
 | **Polidez** | ≥ 1 s entre requisições, no máximo 2 jogos em paralelo, User-Agent identificado. |
 | **Retry do Airflow** | `retries=3`, `retry_exponential_backoff=True` (1 → 15 min). |
 | **Falha parcial** | Mapeamento dinâmico (1 tarefa por jogo). A tarefa final (`ALL_DONE`) publica o Dataset se ao menos um jogo deu certo. |
+| **Cobertura sem lacunas** | `raw.coleta_estado` por jogo: uma carga inicial interrompida continua em modo inicial no retry, e o watermark incremental **só avança se a janela inteira foi coberta**. Se o limite de páginas chegar antes do watermark, ele fica onde estava e a próxima execução recobre a janela. |
+| **Dados sujos** | NUL e surrogates removidos antes do JSONB; inteiros com *clamp* em 2³¹−1 (a API já devolveu uint32 estourado); review sem data fica fora e é contada como aviso. |
 | **Auditoria** | `raw.ingestion_log`: páginas, requisições, retentativas, 429 recebidos e motivo da parada, por jogo e execução. |
 
 ### 2.2 Idempotência em ambos os DAGs
@@ -292,7 +294,7 @@ Método: média de N execuções com `time.perf_counter()`, 1 aquecimento, colet
 * **Champion Lists foram a peça decisiva.** O WAND clássico começa com θ = 0 e pontua quase tudo até o heap encher. Com o heap aquecido, a poda age desde o primeiro documento: o tempo médio cai de 2,20 ms para 0,89 ms.
 * **Block-Max WAND poda mais (98,8%), mas não é o mais rápido aqui.** Em Python puro o custo extra por iteração (ponteiros de bloco) come parte do ganho. Em C++/Rust, onde cada iteração custa nanossegundos, o BMW tende a vencer. É um trade-off clássico entre custo da poda e economia de avaliações.
 * **Há um ponto de cruzamento.** Com 5 mil documentos o overhead do WAND não compensa (0,7×). A partir de ~20 mil a vantagem se estabiliza em ~8×, porque o custo do exaustivo cresce com N e o do WAND depende quase só de K e dos termos raros.
-* **Sem perda de qualidade.** O Top-K de todos os algoritmos otimizados é **idêntico** ao do exaustivo em 100% das consultas do benchmark e nas 480 consultas aleatórias (× 4 algoritmos, K de 1 a 50) da suíte de testes.
+* **Sem perda de qualidade.** O Top-K de todos os algoritmos otimizados é **idêntico** ao do exaustivo em 100% das consultas do benchmark e nas 480 consultas aleatórias (K de 1 a 50) e nos 60 índices com empates propositais da suíte de testes, comparando os documentos retornados e não só os scores.
 * **Correção ortográfica:** o índice de bigramas reduz os candidatos de ~20 mil para menos de 10 (>99,9% de redução), o que torna a correção 500× mais rápida **com a mesma sugestão** da força bruta. Isso viabiliza o "Você quis dizer" em tempo real a cada busca.
 
 ---
@@ -397,7 +399,7 @@ projeto-t2-fucape/
 ├── scripts/
 │   ├── benchmark.py                 # gera docs/resultados_benchmark.{md,json}
 │   └── verificar_idempotencia.py    # prova de idempotência por impressão digital do DW
-├── tests/                           # 62 testes (busca, ortografia, ingestão, transformação, integração)
+├── tests/                           # 124 testes (busca, ortografia, ingestão, transformação, integração)
 └── docs/
     ├── arquitetura.md               # diagramas e decisões de engenharia
     ├── modelo_dimensional.md        # granularidade, DER, dicionário de dados
@@ -405,7 +407,7 @@ projeto-t2-fucape/
     └── roteiro_video.md             # roteiro da apresentação de 10 minutos
 ```
 
-**Qualidade:** código modular por responsabilidade, PEP 8 verificado com `ruff`, docstrings explicando cada decisão, 62 testes automatizados (incluindo prova de poda segura e de idempotência contra Postgres real) e CI no GitHub Actions a cada push.
+**Qualidade:** código modular por responsabilidade, PEP 8 verificado com `ruff`, docstrings explicando cada decisão, 124 testes automatizados (incluindo prova de poda segura e de idempotência contra Postgres real) e CI no GitHub Actions a cada push.
 
 ### Referências
 * Broder, A. et al. *Efficient query evaluation using a two-level retrieval process* (WAND). CIKM, 2003.

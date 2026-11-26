@@ -57,7 +57,8 @@ def busca_taat_heap(indice: IndiceInvertido, consulta: str, k: int = 10) -> Resu
         for d, tf in zip(lista.docs, lista.tfs):
             acumuladores[d] = get(d, 0.0) + idf * tf * k1p / (tf + norm[d])
         postagens += len(lista.docs)
-    top = heapq.nlargest(k, acumuladores.items(), key=lambda par: par[1])
+    # mesmo desempate do exaustivo: score maior e, no empate, menor doc_id
+    top = heapq.nlargest(k, acumuladores.items(), key=lambda par: (par[1], -par[0]))
     return ResultadoBusca("TAAT + heap", termos, top, {
         "docs_pontuados": len(acumuladores), "postagens_pontuadas": postagens, "postagens_total": postagens,
         "candidatos": len(acumuladores),

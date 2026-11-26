@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS raw.steam_app_details (
     last_run_id   TEXT
 );
 
+-- Estado da cobertura por jogo. O watermark so avanca quando a coleta cobriu a
+-- janela inteira (carga inicial concluida ou watermark anterior alcancado). Uma
+-- carga inicial interrompida continua em modo inicial no retry, sem lacunas.
+CREATE TABLE IF NOT EXISTS raw.coleta_estado (
+    app_id                  INTEGER     PRIMARY KEY,
+    carga_inicial_completa  BOOLEAN     NOT NULL DEFAULT FALSE,
+    watermark_ts            BIGINT,               -- timestamp_created da review mais nova coberta
+    atualizado_em           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Auditoria da ingestao: uma linha por (execucao do DAG, jogo, entidade).
 -- Reexecutar a mesma tarefa sobrescreve a linha da mesma execucao.
 CREATE TABLE IF NOT EXISTS raw.ingestion_log (

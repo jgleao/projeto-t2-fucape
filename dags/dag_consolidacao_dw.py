@@ -41,6 +41,8 @@ default_args = {
     start_date=pendulum.datetime(2026, 11, 1, tz="America/Sao_Paulo"),
     catchup=False,
     max_active_runs=1,
+    # Nasce ativo: um DAG consumidor pausado nao e enfileirado pelo evento do Dataset.
+    is_paused_upon_creation=False,
     default_args=default_args,
     tags=["t2", "dw", "kimball", "star-schema"],
     params={"full_refresh": Param(False, type="boolean",

@@ -18,6 +18,23 @@ from psycopg2.extras import Json, execute_values
 from src.db import executar_arquivo_sql, transacao
 
 
+def sanitizar(valor: Any) -> Any:
+    """Remove caracteres que o JSONB do Postgres rejeita (NUL e surrogates soltos)."""
+    if isinstance(valor, str):
+        if "\x00" in valor:
+            valor = valor.replace("\x00", "")
+        try:
+            valor.encode("utf-8")
+        except UnicodeEncodeError:
+            valor = valor.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+        return valor
+    if isinstance(valor, dict):
+        return {sanitizar(k): sanitizar(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [sanitizar(v) for v in valor]
+    return valor
+
+
 def hash_payload(payload: Any) -> str:
     texto = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
@@ -27,12 +44,25 @@ def criar_schema_raw() -> None:
     executar_arquivo_sql("00_raw_schema.sql")
 
 
-def watermark_reviews(app_id: int) -> int | None:
-    """Maior timestamp_created ja coletado do jogo (None = primeira carga)."""
+def ler_estado(app_id: int) -> tuple[bool, int | None]:
+    """(carga_inicial_completa, watermark_ts) do jogo; (False, None) se nunca coletado."""
     with transacao() as conn, conn.cursor() as cur:
-        cur.execute("SELECT max(timestamp_created) FROM raw.steam_reviews WHERE app_id = %s", (app_id,))
-        (valor,) = cur.fetchone()
-    return int(valor) if valor is not None else None
+        cur.execute("SELECT carga_inicial_completa, watermark_ts FROM raw.coleta_estado WHERE app_id = %s",
+                    (app_id,))
+        linha = cur.fetchone()
+    return (bool(linha[0]), linha[1]) if linha else (False, None)
+
+
+def salvar_estado(app_id: int, carga_inicial_completa: bool, watermark_ts: int | None) -> None:
+    with transacao() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO raw.coleta_estado (app_id, carga_inicial_completa, watermark_ts)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (app_id) DO UPDATE SET
+                   carga_inicial_completa = EXCLUDED.carga_inicial_completa,
+                   watermark_ts = GREATEST(raw.coleta_estado.watermark_ts, EXCLUDED.watermark_ts),
+                   atualizado_em = now()""",
+            (app_id, carga_inicial_completa, watermark_ts))
 
 
 SQL_UPSERT_REVIEWS = """
@@ -56,7 +86,7 @@ def upsert_reviews(app_id: int, reviews: Iterable[dict[str, Any]], run_id: str) 
     for review in reviews:
         rid = str(review.get("recommendationid") or "").strip()
         if rid:
-            por_id[rid] = review  # deduplica dentro do lote (ON CONFLICT exige)
+            por_id[rid] = sanitizar(review)  # deduplica dentro do lote (ON CONFLICT exige)
     if not por_id:
         return 0, 0
 
@@ -72,6 +102,7 @@ def upsert_reviews(app_id: int, reviews: Iterable[dict[str, Any]], run_id: str) 
 
 def upsert_detalhes(app_id: int, objeto: dict[str, Any], run_id: str) -> bool:
     """Grava o retorno bruto de appdetails. Retorna True se inseriu/alterou."""
+    objeto = sanitizar(objeto)
     with transacao() as conn, conn.cursor() as cur:
         cur.execute(
             """

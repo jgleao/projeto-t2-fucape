@@ -90,9 +90,10 @@ def speedup(base: float, otimizado: float) -> float:
     return base / otimizado if otimizado > 0 else float("inf")
 
 
-def mesmo_top(a: ResultadoBusca, b: ResultadoBusca, tol: float = 1e-9) -> bool:
-    sa, sb = [s for _, s in a.top], [s for _, s in b.top]
-    return len(sa) == len(sb) and all(abs(x - y) <= tol for x, y in zip(sa, sb))
+def mesmo_top(a: ResultadoBusca, b: ResultadoBusca, tol: float = 1e-12) -> bool:
+    """Mesmos documentos, na mesma ordem, com os mesmos scores."""
+    return len(a.top) == len(b.top) and all(
+        da == db and abs(sa - sb) <= tol for (da, sa), (db, sb) in zip(a.top, b.top))
 
 
 def benchmark_consulta(indice: IndiceInvertido, consulta: str, k: int = 10, repeticoes: int = 7,

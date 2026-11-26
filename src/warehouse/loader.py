@@ -51,10 +51,10 @@ def preparar_staging(full_refresh: bool = False) -> dict[str, Any]:
         cur.execute(ler_sql("02_staging.sql"), {"watermark": watermark})
         cur.execute("SELECT count(*) FROM stg.reviews")
         (linhas,) = cur.fetchone()
-        # novo watermark = maior last_ingested_at entre as linhas processadas
-        cur.execute(
-            """SELECT max(r.last_ingested_at) FROM raw.steam_reviews r
-               JOIN stg.reviews s USING (recommendationid)""")
+        # novo watermark = maior last_ingested_at LIDO pela staging (mesmo snapshot do
+        # INSERT): uma linha alterada na raw durante a carga tem timestamp maior e e
+        # pega na proxima execucao, nunca pulada.
+        cur.execute("SELECT max(ingerido_em) FROM stg.reviews")
         (novo,) = cur.fetchone()
     info = {
         "watermark_anterior": watermark.isoformat(),
@@ -142,10 +142,15 @@ def carregar_dim_jogo() -> int:
                 gratuito = EXCLUDED.gratuito, preco_base_brl = EXCLUDED.preco_base_brl,
                 data_lancamento = EXCLUDED.data_lancamento, ano_lancamento = EXCLUDED.ano_lancamento,
                 descricao_curta = EXCLUDED.descricao_curta, atualizado_em = now()
-            WHERE (dw.dim_jogo.nome_jogo, dw.dim_jogo.generos, dw.dim_jogo.preco_base_brl,
-                   dw.dim_jogo.descricao_curta, dw.dim_jogo.data_lancamento)
-                  IS DISTINCT FROM (EXCLUDED.nome_jogo, EXCLUDED.generos, EXCLUDED.preco_base_brl,
-                   EXCLUDED.descricao_curta, EXCLUDED.data_lancamento)
+            WHERE (dw.dim_jogo.nome_jogo, dw.dim_jogo.tipo, dw.dim_jogo.desenvolvedor, dw.dim_jogo.publicadora,
+                   dw.dim_jogo.genero_principal, dw.dim_jogo.generos, dw.dim_jogo.gratuito,
+                   dw.dim_jogo.preco_base_brl, dw.dim_jogo.data_lancamento, dw.dim_jogo.ano_lancamento,
+                   dw.dim_jogo.descricao_curta)
+                  IS DISTINCT FROM
+                  (EXCLUDED.nome_jogo, EXCLUDED.tipo, EXCLUDED.desenvolvedor, EXCLUDED.publicadora,
+                   EXCLUDED.genero_principal, EXCLUDED.generos, EXCLUDED.gratuito,
+                   EXCLUDED.preco_base_brl, EXCLUDED.data_lancamento, EXCLUDED.ano_lancamento,
+                   EXCLUDED.descricao_curta)
             """, linhas)
     return len(linhas)
 
@@ -161,17 +166,25 @@ def carregar_fato() -> dict[str, int]:
 
 
 # -------------------------------------------------------------- qualidade
+# Mesmo criterio de elegibilidade da staging (02_staging.sql)
+ELEGIVEL = "COALESCE((r.payload ->> 'timestamp_created') ~ '^[0-9]+$', FALSE)"
+
 CHECKS_SQL = {
-    # Cada consulta deve retornar 0 para o check passar.
+    # Cada consulta deve retornar 0 para o check passar. Chaves "aviso_*" sao
+    # registradas em dw.etl_execucao mas nao reprovam a carga.
     "fato_duplicada_por_review": """
         SELECT count(*) FROM (SELECT recommendationid FROM dw.fato_review
                               GROUP BY 1 HAVING count(*) > 1) d""",
     "fato_sem_dimensao_conhecida": """
         SELECT count(*) FROM dw.fato_review
-        WHERE -1 IN (sk_tempo, sk_jogo, sk_autor, sk_perfil, sk_review)""",
-    "raw_ausente_na_fato": """
+        WHERE -1 IN (sk_tempo, sk_jogo, sk_perfil, sk_review)""",
+    "raw_ausente_na_fato": f"""
         SELECT count(*) FROM raw.steam_reviews r
-        LEFT JOIN dw.fato_review f USING (recommendationid) WHERE f.recommendationid IS NULL""",
+        LEFT JOIN dw.fato_review f USING (recommendationid)
+        WHERE f.recommendationid IS NULL AND {ELEGIVEL}""",
+    # autor anonimo (steamid ausente) e um dado legitimo da fonte: vai para o membro -1
+    "aviso_autor_desconhecido": "SELECT count(*) FROM dw.fato_review WHERE sk_autor = -1",
+    "aviso_raw_inelegivel": f"SELECT count(*) FROM raw.steam_reviews r WHERE NOT {ELEGIVEL}",
     "qtd_reviews_diferente_de_1": "SELECT count(*) FROM dw.fato_review WHERE qtd_reviews <> 1",
     "recomendacao_inconsistente": """
         SELECT count(*) FROM dw.fato_review
@@ -192,7 +205,7 @@ def validar_qualidade(run_id: str, info_staging: dict[str, Any] | None = None,
             checks[nome] = int(cur.fetchone()[0])
         cur.execute("SELECT count(*), COALESCE(sum(votos_uteis), 0) FROM dw.fato_review")
         total_fato, soma_votos = cur.fetchone()
-        status = "sucesso" if all(v == 0 for v in checks.values()) else "falha_qualidade"
+        status = "sucesso" if all(v == 0 for k, v in checks.items() if not k.startswith("aviso_"))             else "falha_qualidade"
         cur.execute(
             """INSERT INTO dw.etl_execucao (run_id, linhas_staging, fato_inseridas, fato_atualizadas,
                                             total_fato, soma_votos_uteis, checks, status)
@@ -209,6 +222,9 @@ def validar_qualidade(run_id: str, info_staging: dict[str, Any] | None = None,
     log.info("Qualidade: %s", resultado)
     if status != "sucesso":
         raise ValueError(f"Checks de qualidade falharam: {checks}")
+    avisos = {k: v for k, v in checks.items() if k.startswith("aviso_") and v}
+    if avisos:
+        log.warning("Avisos de qualidade (nao bloqueiam a carga): %s", avisos)
     return resultado
 
 

@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS stg.reviews (
     qtd_palavras            INTEGER NOT NULL,
     qtd_caracteres          INTEGER NOT NULL
 );
+-- last_ingested_at da linha raw lida (o novo watermark sai daqui, no mesmo snapshot)
+ALTER TABLE stg.reviews ADD COLUMN IF NOT EXISTS ingerido_em TIMESTAMPTZ;
 
 -- ---------------------------------------------------------- DIM_TEMPO ------
 CREATE TABLE IF NOT EXISTS dw.dim_tempo (

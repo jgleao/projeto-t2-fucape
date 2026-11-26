@@ -20,7 +20,8 @@ def indice():
 
 
 def _scores(resultado):
-    return [round(s, 9) for _, s in resultado.top]
+    """Top-K completo: (doc_id, score). Compara DOCUMENTOS, nao so scores."""
+    return [(d, round(s, 12)) for d, s in resultado.top]
 
 
 def _consultas(indice, n, semente=123):
@@ -36,6 +37,21 @@ def test_topk_identico_ao_exaustivo(indice, busca, k):
         esperado = busca_exaustiva(indice, consulta, k)
         obtido = busca(indice, consulta, k)
         assert _scores(obtido) == _scores(esperado), consulta
+
+
+@pytest.mark.parametrize("semente", range(60))
+def test_empates_desempatados_como_no_exaustivo(semente):
+    """Vocabulario minusculo e documentos curtos e repetidos -> muitos scores empatados.
+    O Top-K otimizado tem que trazer os MESMOS documentos (desempate por menor doc_id)."""
+    rng = random.Random(semente)
+    vocab = [f"t{i}" for i in range(8)]
+    textos = [" ".join(rng.choices(vocab, k=rng.randint(1, 4))) for _ in range(rng.randint(30, 400))]
+    indice = IndiceInvertido.construir(textos, tamanho_bloco=4, tamanho_campeoes=3)
+    for consulta in ["t0", "t0 t1", "t1 t2 t3", "t0 t4 t5 t6 t7"]:
+        for k in (1, 2, 3, 5, 10):
+            esperado = _scores(busca_exaustiva(indice, consulta, k))
+            for busca in OTIMIZADOS:
+                assert _scores(busca(indice, consulta, k)) == esperado, (semente, consulta, k, busca.__name__)
 
 
 def test_consultas_com_termos_frequentes(indice):

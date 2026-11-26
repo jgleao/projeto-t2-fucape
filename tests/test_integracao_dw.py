@@ -113,3 +113,41 @@ def test_corpus_da_busca_vem_do_dw(banco):
     assert len(textos) == 3 and metas[0]["jogo"] == "Stardew Valley"
     resp = MotorBusca(textos, metas).buscar("jogo travndo", k=2)
     assert resp.correcoes == [("travndo", "travando")] and len(resp.docs) == 2
+
+
+def test_dados_sujos_da_api_nao_derrubam_a_carga(banco):
+    """Casos levantados na revisao: uint32 estourado, NUL/surrogate no texto, review sem
+    timestamp_created e autor anonimo. A carga tem que passar e registrar avisos."""
+    from src.ingestion import raw_store
+    from src.warehouse import loader
+
+    estourada = _review(10, "c", 1_720_000_000, votos_uteis=4294967295)
+    estourada["comment_count"] = 4294967295
+    estourada["author"]["num_games_owned"] = 4294967295
+    com_nul = _review(11, "d", 1_720_000_100, texto="texto com \x00 nul e \ud83d surrogate solto")
+    sem_data = _review(12, "e", 1_720_000_200)
+    del sem_data["timestamp_created"]
+    anonima = _review(13, "x", 1_720_000_300)
+    del anonima["author"]["steamid"]
+    assert raw_store.upsert_reviews(413150, [estourada, com_nul, sem_data, anonima], "run-sujo") == (4, 0)
+
+    res = loader.executar_tudo("dag2-sujo")
+    checks = res["qualidade"]["checks"]
+    assert res["qualidade"]["status"] == "sucesso"
+    assert checks["aviso_raw_inelegivel"] == 1 and checks["aviso_autor_desconhecido"] == 1
+    with banco() as conn, conn.cursor() as cur:
+        cur.execute("SELECT votos_uteis, qtd_comentarios FROM dw.fato_review WHERE recommendationid = '10'")
+        assert cur.fetchone() == (2147483647, 2147483647)
+        cur.execute("""SELECT r.texto_limpo FROM dw.fato_review f JOIN dw.dim_review r USING (sk_review)
+                       WHERE f.recommendationid = '11'""")
+        assert "\x00" not in cur.fetchone()[0]
+
+
+def test_estado_de_cobertura_da_coleta(banco):
+    from src.ingestion import raw_store
+    assert raw_store.ler_estado(999) == (False, None)
+    raw_store.salvar_estado(999, False, None)            # carga inicial interrompida
+    assert raw_store.ler_estado(999) == (False, None)
+    raw_store.salvar_estado(999, True, 1_700_000_000)    # carga inicial concluida
+    raw_store.salvar_estado(999, True, 1_600_000_000)    # watermark nunca anda para tras
+    assert raw_store.ler_estado(999) == (True, 1_700_000_000)

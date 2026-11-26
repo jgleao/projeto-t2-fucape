@@ -28,7 +28,7 @@ import streamlit as st  # noqa: E402
 
 import consultas as q  # noqa: E402
 from src.search_engine.benchmark import (CONSULTAS_PADRAO, ERROS_PADRAO, benchmark_ortografia,  # noqa: E402
-                                         benchmark_ranking)
+                                         benchmark_ranking, mesmo_top)
 from src.search_engine.motor import MotorBusca  # noqa: E402
 from src.search_engine.text import normalizar, reduzir  # noqa: E402
 
@@ -68,12 +68,15 @@ def tema(chart: alt.Chart, altura: int = 300) -> alt.Chart:
 
 # ----------------------------------------------------------------- dados
 @st.cache_data(ttl=60, show_spinner=False)
-def status_dw() -> tuple[bool, str, int]:
+def status_dw() -> tuple[bool, str, int, str]:
+    """(conectado, mensagem, linhas na fato, versao do corpus para a chave do cache do indice)."""
     try:
-        total = q.escalar("SELECT count(*) FROM dw.fato_review")
-        return True, "conectado", int(total or 0)
+        linha = q.df("""SELECT (SELECT count(*) FROM dw.fato_review) AS total,
+                               (SELECT max(atualizado_em) FROM dw.dim_review)::text AS ultima_edicao""").iloc[0]
+        total = int(linha["total"] or 0)
+        return True, "conectado", total, f"{total}|{linha['ultima_edicao']}"
     except Exception as exc:  # noqa: BLE001
-        return False, str(exc).splitlines()[0][:160], 0
+        return False, str(exc).splitlines()[0][:160], 0, "offline"
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -94,7 +97,7 @@ def status_airflow() -> dict[str, dict]:
 
 
 @st.cache_resource(show_spinner="Indexando o corpus do Data Warehouse (indice invertido + Trie + k-gramas)...")
-def carregar_motor(versao_dw: int, fonte: str) -> MotorBusca:
+def carregar_motor(versao_dw: str, fonte: str) -> MotorBusca:
     if fonte == "dw":
         from src.search_engine.corpus import carregar_corpus
         textos, metas = carregar_corpus()
@@ -121,8 +124,13 @@ def fmt_int(v) -> str:
     return f"{int(v):,}".replace(",", ".") if pd.notna(v) else "-"
 
 
+def num(v) -> float:
+    """None/NaN -> 0.0 (NaN e "truthy", entao `v or 0` nao basta)."""
+    return float(v) if v is not None and pd.notna(v) else 0.0
+
+
 # ---------------------------------------------------------------- layout
-dw_ok, dw_msg, total_fato = status_dw()
+dw_ok, dw_msg, total_fato, versao_corpus = status_dw()
 
 with st.sidebar:
     st.markdown("### 🎮 Steam Reviews Intelligence")
@@ -149,12 +157,12 @@ aba_negocio, aba_busca, aba_eng, aba_modelo = st.tabs(
 
 # ======================================================= 1. NEGOCIOS ===
 with aba_negocio:
-    if not dw_ok or total_fato == 0:
+    periodo = q.periodo_disponivel() if dw_ok and total_fato > 0 else None
+    if periodo is None:
         st.info("O Data Warehouse ainda nao tem dados. Rode `dag_ingestao_raw` no Airflow "
                 "(o `dag_consolidacao_dw` dispara sozinho via Dataset) e clique em Recarregar dados.")
     else:
         jogos_df = q.jogos_disponiveis()
-        periodo = q.periodo_disponivel()
         c1, c2 = st.columns([3, 2])
         with c1:
             escolhidos = st.multiselect("Jogos", jogos_df["nome_jogo"].tolist(),
@@ -170,11 +178,11 @@ with aba_negocio:
 
         m = st.columns(6)
         m[0].metric("Reviews", fmt_int(k["reviews"]))
-        m[1].metric("% Recomendam", f"{(k['pct_rec'] or 0) * 100:.1f}%")
-        m[2].metric("Horas jogadas (mediana)", f"{(k['horas_mediana'] or 0):.1f} h")
+        m[1].metric("% Recomendam", f"{num(k['pct_rec']) * 100:.1f}%")
+        m[2].metric("Horas jogadas (mediana)", f"{num(k['horas_mediana']):.1f} h")
         m[3].metric("Votos 'útil'", fmt_int(k["votos_uteis"]))
         m[4].metric("Autores únicos", fmt_int(k["autores"]))
-        m[5].metric("Palavras por review", f"{(k['palavras_media'] or 0):.0f}")
+        m[5].metric("Palavras por review", f"{num(k['palavras_media']):.0f}")
 
         g1, g2 = st.columns([3, 2])
         with g1:
@@ -248,7 +256,7 @@ with aba_negocio:
 
 # ========================================================== 2. BUSCA ===
 with aba_busca:
-    motor = carregar_motor(total_fato, fonte_busca)
+    motor = carregar_motor(versao_corpus, fonte_busca)
     st.caption(f"Índice: {fmt_int(motor.indice.n_docs)} reviews · {fmt_int(len(motor.indice.postagens))} termos · "
                f"construído em {motor.tempo_indexacao_s:.1f}s · corretor com "
                f"{fmt_int(len(motor.corretor.vocabulario))} palavras")
@@ -288,7 +296,7 @@ with aba_busca:
         m[3].metric("Docs pontuados", f"{fmt_int(avaliados)} / {fmt_int(candidatos)}",
                     help="Documentos pontuados pelo algoritmo otimizado / documentos que contêm algum termo")
         m[4].metric("Taxa de poda", f"{(1 - avaliados / candidatos) * 100 if candidatos else 0:.1f}%")
-        identico = [round(s, 9) for _, s in resp.resultado.top] == [round(s, 9) for _, s in resp.baseline.top]
+        identico = mesmo_top(resp.resultado, resp.baseline)
         st.caption(("✅ Top-K idêntico ao exaustivo (poda segura)" if identico else "⚠️ Top-K diferente do exaustivo")
                    + f" · termos analisados: {', '.join(resp.resultado.termos) or '-'}")
 

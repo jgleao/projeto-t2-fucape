@@ -46,18 +46,23 @@ from typing import Any
 from src.search_engine.baseline import ResultadoBusca
 from src.search_engine.index import IndiceInvertido
 
-# Campos do cursor (lista mutavel = acesso rapido em Python puro)
-DOC, POS, DOCS, TFS, IDF, UB, LEN, BLK, BULT, BMAX = range(10)
+# Campos do cursor (lista mutavel = acesso rapido em Python puro); IDX = posicao do termo na consulta
+DOC, POS, DOCS, TFS, IDF, UB, LEN, BLK, BULT, BMAX, IDX = range(11)
+# Folga numerica da poda: so descarta quando o limite superior fica ABAIXO de theta por
+# mais que EPS. Assim um documento empatado com o K-esimo (que pode vencer pelo
+# desempate por menor doc_id) nunca e podado, e arredondamentos de ponto flutuante
+# na soma dos limites nao tornam a poda insegura.
+EPS = 1e-9
 _POR_DOC = itemgetter(DOC)
 FATOR_CANDIDATOS = 3   # pontua exatamente FATOR * K candidatos vindos das champion lists
 
 
 def _cursores(indice: IndiceInvertido, termos: list[str]) -> list[list]:
     cursores = []
-    for termo in termos:
+    for idx, termo in enumerate(termos):
         p = indice.postagens[termo]
         cursores.append([p.docs[0], 0, p.docs, p.tfs, p.idf, p.limite, len(p.docs), 0,
-                         p.bloco_ultimo, p.bloco_max])
+                         p.bloco_ultimo, p.bloco_max, idx])
     return cursores
 
 
@@ -66,12 +71,16 @@ def _ordenar_top(heap: list[tuple[float, int]]) -> list[tuple[int, float]]:
 
 
 def _empurrar(heap: list, k: int, score: float, doc: int, theta: float) -> float:
-    """Insere no Min-Heap Top-K e devolve o novo limiar theta."""
+    """Insere no Min-Heap Top-K e devolve o novo limiar theta.
+
+    A ordem e a mesma do baseline: score maior primeiro e, no empate, menor doc_id.
+    O heap guarda (score, -doc); heap[0] e o pior documento do Top-K."""
+    item = (score, -doc)
     if len(heap) < k:
-        heappush(heap, (score, -doc))
+        heappush(heap, item)
         return heap[0][0] if len(heap) == k else 0.0
-    if score > theta:
-        heapreplace(heap, (score, -doc))
+    if item > heap[0]:
+        heapreplace(heap, item)
         return heap[0][0]
     return theta
 
@@ -124,7 +133,7 @@ def _wand(indice: IndiceInvertido, consulta: str, k: int, usar_blocos: bool, aqu
             if c[DOC] >= fim:
                 break
             acumulado += c[UB]
-            if acumulado > theta:
+            if acumulado + EPS >= theta:
                 pivo = i
                 break
         if pivo < 0:
@@ -146,7 +155,7 @@ def _wand(indice: IndiceInvertido, consulta: str, k: int, usar_blocos: bool, aqu
                 soma_blocos += c[BMAX][blk]
                 if c[BULT][blk] + 1 < proximo:
                     proximo = c[BULT][blk] + 1
-            if soma_blocos <= theta:
+            if soma_blocos + EPS < theta:
                 # nenhum documento em [doc_pivo, proximo) entra no Top-K: salta o intervalo
                 saltos_bloco += 1
                 for c in cursores[:ultimo + 1]:
@@ -159,17 +168,23 @@ def _wand(indice: IndiceInvertido, consulta: str, k: int, usar_blocos: bool, aqu
 
         if cursores[0][DOC] == doc_pivo:
             repetido = doc_pivo in ja_pontuados
-            score = 0.0
+            partes = []
             for c in cursores:
                 if c[DOC] != doc_pivo:
                     break
                 if not repetido:
                     tf = c[TFS][c[POS]]
-                    score += c[IDF] * tf * k1p / (tf + norm[doc_pivo])
-                    postagens += 1
+                    partes.append((c[IDX], c[IDF] * tf * k1p / (tf + norm[doc_pivo])))
                 c[POS] += 1
                 c[DOC] = c[DOCS][c[POS]] if c[POS] < c[LEN] else fim
             if not repetido:
+                # soma na ORDEM DOS TERMOS, como o baseline: mesmo float, bit a bit
+                if len(partes) > 1:
+                    partes.sort()
+                score = 0.0
+                for _, contribuicao in partes:
+                    score += contribuicao
+                postagens += len(partes)
                 avaliados += 1
                 theta = _empurrar(heap, k, score, doc_pivo, theta)
         else:

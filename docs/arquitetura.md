@@ -86,12 +86,12 @@ sequenceDiagram
 
 | Problema | Tratamento | Onde |
 |---|---|---|
-| Paginação | Cursor opaco da Steam (`cursor=*` na primeira página, depois o `cursor` devolvido). Para em página vazia, cursor repetido (bug conhecido da API no fim da lista), página incompleta, watermark ou limite de páginas | `steam_api.py` |
+| Paginação | Cursor opaco da Steam (`cursor=*` na primeira página, depois o `cursor` devolvido). Para em página vazia, cursor repetido ou ausente (a API repete o cursor no fim da lista), watermark ou limite de páginas | `steam_api.py` |
 | Rate limit (HTTP 429) | Retentativa com **exponential backoff com equal jitter**. Se vier `Retry-After`, a espera nunca é menor que ele | `http_client.py` |
 | Instabilidade (500/502/503/504, timeout, conexão) | Mesmo backoff, até 6 retentativas, teto de 60 s por espera | `http_client.py` |
 | Resposta 200 inválida (HTML de erro) | Tratada como retentável | `http_client.py` |
 | Erro permanente (400/403/404) | Falha imediata, sem desperdiçar requisições | `http_client.py` |
-| Polidez | Intervalo mínimo de 1 s entre requisições por cliente; no máximo 2 jogos em paralelo (`max_active_tis_per_dagrun=2`); User-Agent identificado | DAG 1 |
+| Polidez | Intervalo mínimo de 1 s entre requisições por cliente; detalhes antes de reviews e no máximo 2 tarefas por etapa (`max_active_tis_per_dagrun=2`), ou seja, nunca mais de 2 clientes simultâneos; User-Agent identificado | DAG 1 |
 | Falha da tarefa inteira | `retries=3` do Airflow com `retry_exponential_backoff=True` (1 min → 15 min) | DAG 1 |
 | Falha parcial (um jogo cai) | `publicar_dataset_raw` usa `trigger_rule=ALL_DONE`: publica o Dataset se ao menos um jogo foi coletado e registra o erro dos outros no `ingestion_log` | DAG 1 |
 
@@ -99,8 +99,11 @@ Por que *equal jitter*: sem jitter, vários clientes que levaram 429 ao mesmo te
 
 ### Carga incremental
 
-* Primeira execução de um jogo: até `max_paginas_inicial` páginas (25 × 100 = 2.500 reviews por jogo).
-* Execuções seguintes: lê o **watermark** (`max(timestamp_created)` do jogo na raw) e para ao alcançar reviews mais antigas que `watermark − 2 dias`. A sobreposição de 2 dias captura edições recentes de votos e textos, e o upsert evita duplicatas.
+O estado de cada jogo fica em `raw.coleta_estado` (`carga_inicial_completa`, `watermark_ts`), em vez de ser deduzido da tabela de reviews:
+
+* **Carga inicial** (até `max_paginas_inicial` = 25 páginas = 2.500 reviews por jogo). Se cair no meio, o retry continua em **modo inicial** e recomeça do topo; o upsert torna o recomeço seguro. Só ao terminar ela marca `carga_inicial_completa = true` e grava o watermark (a review mais nova vista).
+* **Incremental:** para ao alcançar reviews mais antigas que `watermark − 2 dias`. A sobreposição captura edições recentes de votos e textos. O watermark **só avança se a janela inteira foi coberta**; se o teto `max_paginas_incremental` (20 páginas) chegar antes, o watermark fica onde estava e um aviso é registrado. Assim nenhuma review some numa lacuna.
+* O watermark do DAG 2 vem do `last_ingested_at` **lido pela própria staging** (mesmo snapshot do INSERT). Uma linha alterada na raw durante a carga tem timestamp maior e entra na execução seguinte.
 
 ## 4. Idempotência, demonstrada formalmente
 
@@ -135,7 +138,9 @@ flowchart LR
 
 **Limpeza e transformação (staging):** desaninhamento do JSON (`author.steamid`, `author.playtime_at_review`, ...), tipagem (epoch → `timestamp` em America/Sao_Paulo, texto → boolean/int/numeric), remoção de BBCode (`[b]`, `[spoiler]`, `[url=...]`) e de URLs, normalização de espaços, deduplicação (`DISTINCT ON` pela versão mais recente) e tratamento do overflow de `votes_funny`.
 
-**Checks de qualidade (falham o DAG se ≠ 0):** fato duplicada por review · fato apontando para membro desconhecido · review da raw ausente na fato · `qtd_reviews ≠ 1` · recomendação inconsistente · métricas negativas.
+**Checks de qualidade (falham o DAG se ≠ 0):** fato duplicada por review · fato apontando para membro desconhecido (tempo, jogo, perfil, review) · review elegível da raw ausente na fato · `qtd_reviews ≠ 1` · recomendação inconsistente · métricas negativas. **Avisos (registrados, não bloqueiam):** autor anônimo (vai para o membro −1) e reviews sem data na raw.
+
+**Robustez da staging:** todo inteiro vindo da API passa por *clamp* em [0, 2³¹−1]; `weighted_vote_score` inválido vira NULL; reviews sem `timestamp_created` ficam de fora pelo mesmo critério usado nos checks.
 
 ## 6. Persistência
 

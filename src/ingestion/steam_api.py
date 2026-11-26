@@ -60,9 +60,9 @@ class SteamApi:
     ) -> Iterator[PaginaReviews]:
         """Itera as paginas de reviews, da mais nova para a mais antiga.
 
-        Para quando: a pagina vem vazia; o cursor se repete (a API as vezes
-        devolve o mesmo cursor no fim); a pagina vem incompleta; a review mais
-        antiga da pagina e anterior ao watermark; ou atinge max_paginas.
+        Para quando: a pagina vem vazia; o cursor se repete ou falta (a API
+        devolve o mesmo cursor no fim); a review mais antiga da pagina e anterior
+        ao watermark; ou atinge max_paginas.
         """
         resultado = resultado or ResultadoPaginacao()
         cursor = "*"
@@ -101,9 +101,8 @@ class SteamApi:
             if not proximo or proximo in vistos:
                 resultado.motivo_parada = "cursor repetido ou ausente"
                 return
-            if len(reviews) < por_pagina:
-                resultado.motivo_parada = "ultima pagina"
-                return
+            # Uma pagina com menos de por_pagina reviews NAO encerra a coleta: a Steam
+            # filtra reviews depois de paginar, entao paginas do meio podem vir incompletas.
             cursor = proximo
 
         resultado.motivo_parada = f"limite de {max_paginas} paginas"

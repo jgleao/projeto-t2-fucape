@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable
 
 from src.search_engine.text import _TOKEN_RE, STOPWORDS, normalizar, tokens_superficie
 
@@ -146,12 +146,17 @@ class CorretorOrtografico:
         """Linha de base: Levenshtein contra o vocabulario inteiro."""
         return self._ranquear(palavra, self.vocabulario, n), len(self.vocabulario)
 
-    def corrigir_consulta(self, consulta: str) -> tuple[str, list[tuple[str, str]]]:
-        """'Voce quis dizer': troca palavras fora do vocabulario pela melhor sugestao."""
+    def corrigir_consulta(self, consulta: str, conhecida: Callable[[str], bool] | None = None
+                          ) -> tuple[str, list[tuple[str, str]]]:
+        """'Voce quis dizer': troca palavras fora do vocabulario pela melhor sugestao.
+
+        `conhecida` permite consultar um vocabulario maior (ex.: o do indice invertido),
+        para nao "corrigir" uma palavra rara que existe no corpus."""
         trocas = []
         saida = []
         for token in _TOKEN_RE.findall(normalizar(consulta)):
-            if self.existe(token) or len(token) <= 3 or token in STOPWORDS or token.isdigit():
+            if (self.existe(token) or len(token) <= 3 or token in STOPWORDS or token.isdigit()
+                    or (conhecida is not None and conhecida(token))):
                 saida.append(token)
                 continue
             sugestoes, _ = self.corrigir(token, 1)

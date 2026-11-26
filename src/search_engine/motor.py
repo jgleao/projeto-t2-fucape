@@ -12,6 +12,7 @@ from src.search_engine.benchmark import delta_pct, speedup
 from src.search_engine.index import IndiceInvertido
 from src.search_engine.optimized import ALGORITMOS as OTIMIZADOS
 from src.search_engine.spelling import CorretorOrtografico
+from src.search_engine.text import reduzir
 
 
 @dataclass
@@ -49,7 +50,8 @@ class MotorBusca:
     def buscar(self, consulta: str, k: int = 10, algoritmo: str = "wand_campeoes",
                corrigir: bool = True, repeticoes: int = 3) -> RespostaBusca:
         t0 = time.perf_counter()
-        usada, correcoes = (self.corretor.corrigir_consulta(consulta) if corrigir else (consulta, []))
+        no_indice = lambda t: reduzir(t) in self.indice.postagens  # noqa: E731
+        usada, correcoes = (self.corretor.corrigir_consulta(consulta, no_indice) if corrigir else (consulta, []))
         t_corr = (time.perf_counter() - t0) * 1000
         if not correcoes:
             usada = consulta
