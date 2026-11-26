@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dw
+          POSTGRES_PASSWORD: dw
+          POSTGRES_DB: dw_teste
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dw -d dw_teste" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DW_HOST: localhost
+      DW_PORT: "5433"
+      DW_DB: dw_teste
+      DW_USER: dw
+      DW_PASSWORD: dw
+      RODAR_INTEGRACAO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt ruff
+      - name: Lint (PEP 8)
+        run: ruff check --select E,F,W --ignore E501 src app scripts tests
+      - name: Testes unitarios + integracao com Postgres real
+        run: python -m pytest -v
+      - name: Benchmark rapido (corpus sintetico)
+        run: python -m scripts.benchmark --fonte sintetico --n-docs 20000 --repeticoes 3 --sem-escala
+
+  airflow-dags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker-compose.yml valido
+        run: docker compose config -q
+      - name: DAGs importam sem erro na imagem oficial do Airflow
+        run: |
+          docker run --rm -v "$PWD/dags:/opt/airflow/dags" -v "$PWD/src:/opt/airflow/src" \
+            -e PYTHONPATH=/opt/airflow -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
+            apache/airflow:2.10.5-python3.12 bash -c "airflow db migrate > /dev/null && python - <<'EOF'
+          from airflow.models import DagBag
+          bag = DagBag(dag_folder='/opt/airflow/dags', include_examples=False)
+          assert not bag.import_errors, bag.import_errors
+          assert set(bag.dag_ids) == {'dag_ingestao_raw', 'dag_consolidacao_dw'}, bag.dag_ids
+          print('DAGs OK:', bag.dag_ids)
+          EOF"
