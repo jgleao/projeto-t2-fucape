@@ -88,11 +88,11 @@ def por_faixa_horas(p: dict) -> pd.DataFrame:
     return df(f"""
         SELECT faixa, ordem, sum(qtd) AS reviews, sum(rec)::float / sum(qtd) AS pct_rec FROM (
             SELECT f.qtd_reviews AS qtd, f.qtd_recomendacoes AS rec,
-                   CASE WHEN f.minutos_jogados_review < 120   THEN 'Menos de 2h'
-                        WHEN f.minutos_jogados_review < 600   THEN '2h a 10h'
-                        WHEN f.minutos_jogados_review < 3000  THEN '10h a 50h'
-                        WHEN f.minutos_jogados_review < 12000 THEN '50h a 200h'
-                        ELSE 'Mais de 200h' END AS faixa,
+                   CASE WHEN f.minutos_jogados_review < 120   THEN '< 2 h'
+                        WHEN f.minutos_jogados_review < 600   THEN '2–10 h'
+                        WHEN f.minutos_jogados_review < 3000  THEN '10–50 h'
+                        WHEN f.minutos_jogados_review < 12000 THEN '50–200 h'
+                        ELSE '200 h +' END AS faixa,
                    CASE WHEN f.minutos_jogados_review < 120   THEN 1
                         WHEN f.minutos_jogados_review < 600   THEN 2
                         WHEN f.minutos_jogados_review < 3000  THEN 3

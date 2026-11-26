@@ -23,10 +23,10 @@ PROCESSO = "consolidacao_reviews"
 INICIO_DOS_TEMPOS = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 GENEROS_PT = {
-    "Action": "Acao", "Adventure": "Aventura", "Casual": "Casual", "Indie": "Indie",
-    "Massively Multiplayer": "Multijogador Massivo", "Racing": "Corrida", "RPG": "RPG",
-    "Simulation": "Simulacao", "Sports": "Esportes", "Strategy": "Estrategia",
-    "Free to Play": "Gratuito para Jogar", "Early Access": "Acesso Antecipado",
+    "Action": "Ação", "Adventure": "Aventura", "Casual": "Casual", "Indie": "Indie",
+    "Massively Multiplayer": "Multijogador massivo", "Racing": "Corrida", "RPG": "RPG",
+    "Simulation": "Simulação", "Sports": "Esportes", "Strategy": "Estratégia",
+    "Free to Play": "Gratuito para jogar", "Early Access": "Acesso antecipado",
 }
 
 

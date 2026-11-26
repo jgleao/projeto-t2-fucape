@@ -27,56 +27,45 @@ import requests  # noqa: E402
 import streamlit as st  # noqa: E402
 
 import consultas as q  # noqa: E402
+import estilo as ui  # noqa: E402
 from src.search_engine.benchmark import (CONSULTAS_PADRAO, ERROS_PADRAO, benchmark_ortografia,  # noqa: E402
                                          benchmark_ranking, mesmo_top)
 from src.search_engine.motor import MotorBusca  # noqa: E402
 from src.search_engine.text import normalizar, reduzir  # noqa: E402
 
-st.set_page_config(page_title="Steam Reviews Intelligence", page_icon="🎮", layout="wide")
+st.set_page_config(page_title="Steam Reviews Intelligence", page_icon=":material/query_stats:", layout="wide")
+st.html(ui.CSS)
 
-# Paleta categorica validada (ordem fixa) + tinta de texto recessiva
-AZUL, LARANJA, AQUA, AMARELO = "#257de0", "#f47230", "#00b894", "#f2a600"
-CINZA_TEXTO, GRADE = "#666666", "#e6e6e6"
-COR_RECOMENDACAO = alt.Scale(domain=["Recomendado", "Nao recomendado"], range=[AZUL, LARANJA])
-NOMES_ALGORITMO = {"wand_campeoes": "WAND + Champion Lists", "bmw": "Block-Max WAND", "wand": "WAND classico"}
-
-st.markdown("""
-<style>
-  .block-container {padding-top: 1.6rem; max-width: 1400px;}
-  div[data-testid="stMetric"] {background: var(--secondary-background-color); border-radius: 12px;
-                               padding: 14px 16px; border: 1px solid rgba(128,128,128,.15);}
-  div[data-testid="stMetricLabel"] p {font-size: .82rem; color: #666;}
-  .hero {padding: 18px 22px; border-radius: 16px; margin-bottom: 8px;
-         background: linear-gradient(120deg, #0e3d7e 0%, #257de0 60%, #00b894 140%); color: #fff;}
-  .hero h1 {font-size: 1.7rem; margin: 0; color: #fff;}
-  .hero p {margin: 4px 0 0; opacity: .9;}
-  .tag {display:inline-block; padding:2px 10px; border-radius:999px; font-size:.78rem; font-weight:600;
-        margin-right:6px; border:1px solid rgba(128,128,128,.3);}
-  .tag-rec {background: rgba(37,125,224,.12); color:#1757ac;}
-  .tag-nao {background: rgba(244,114,48,.14); color:#a84410;}
-  mark {background: rgba(242,166,0,.35); padding: 0 2px; border-radius: 3px;}
-</style>""", unsafe_allow_html=True)
+MARINHO, ACO, CORAL, PETROLEO = ui.MARINHO, ui.ACO, ui.CORAL, ui.PETROLEO
+COR_RECOMENDACAO = alt.Scale(domain=["Recomendado", "Não recomendado"], range=[MARINHO, CORAL])
+# numeros no padrao brasileiro nos eixos e tooltips (1.000,5)
+LOCALE_BR = {"number": {"decimal": ",", "thousands": ".", "grouping": [3], "currency": ["R$ ", ""]}}
+NOMES_ALGORITMO = {"wand_campeoes": "WAND + Champion Lists", "bmw": "Block-Max WAND", "wand": "WAND clássico"}
 
 
 def tema(chart: alt.Chart, altura: int = 300) -> alt.Chart:
-    return (chart.properties(height=altura)
-            .configure_axis(gridColor=GRADE, domainColor=GRADE, tickColor=GRADE, labelColor=CINZA_TEXTO,
-                            titleColor=CINZA_TEXTO, labelFontSize=11, titleFontSize=11, titleFontWeight="normal")
-            .configure_legend(labelColor=CINZA_TEXTO, titleColor=CINZA_TEXTO, orient="top", title=None)
+    """Graficos no tema escuro: fundo transparente, grade recessiva, texto suave."""
+    return (chart.properties(height=altura, background="transparent")
+            .configure(font=ui.FONTE, locale=LOCALE_BR)
+            .configure_axis(gridColor=ui.GRADE, gridDash=[2, 4], domain=False, ticks=False, labelColor=ui.TEXTO_SUAVE,
+                            titleColor=ui.TEXTO_SUAVE, labelFontSize=11, titleFontSize=11, titleFontWeight="normal",
+                            labelPadding=6)
+            .configure_legend(labelColor="#3b4a57", orient="top", title=None, symbolType="circle", labelFontSize=12)
             .configure_view(strokeWidth=0))
 
 
 # ----------------------------------------------------------------- dados
 @st.cache_data(ttl=60, show_spinner=False)
-def status_dw() -> tuple[bool, str, int, str]:
-    """(conectado, mensagem, linhas na fato, versao do corpus para a chave do cache do indice)."""
+def status_dw() -> tuple[bool, str, int, str, int]:
+    """(conectado, mensagem, linhas na fato, versao do corpus p/ cache do indice, jogos)."""
     try:
         linha = q.df("""SELECT (SELECT count(*) FROM dw.fato_review) AS total,
+                               (SELECT count(DISTINCT sk_jogo) FROM dw.fato_review) AS jogos,
                                (SELECT max(atualizado_em) FROM dw.dim_review)::text AS ultima_edicao""").iloc[0]
         total = int(linha["total"] or 0)
-        return True, "conectado", total, f"{total}|{linha['ultima_edicao']}"
+        return True, "conectado", total, f"{total}|{linha['ultima_edicao']}", int(linha["jogos"] or 0)
     except Exception as exc:  # noqa: BLE001
-        return False, str(exc).splitlines()[0][:160], 0, "offline"
+        return False, str(exc).splitlines()[0][:160], 0, "offline", 0
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -86,17 +75,16 @@ def status_airflow() -> dict[str, dict]:
     saida = {}
     for dag_id in ("dag_ingestao_raw", "dag_consolidacao_dw"):
         try:
-            r = requests.get(f"{url}/dags/{dag_id}/dagRuns", params={"order_by": "-execution_date", "limit": 5},
+            r = requests.get(f"{url}/dags/{dag_id}/dagRuns", params={"order_by": "-execution_date", "limit": 8},
                              auth=auth, timeout=3)
             r.raise_for_status()
-            runs = r.json().get("dag_runs", [])
-            saida[dag_id] = {"ok": True, "runs": runs}
+            saida[dag_id] = {"ok": True, "runs": r.json().get("dag_runs", [])}
         except Exception as exc:  # noqa: BLE001
             saida[dag_id] = {"ok": False, "erro": exc.__class__.__name__, "runs": []}
     return saida
 
 
-@st.cache_resource(show_spinner="Indexando o corpus do Data Warehouse (indice invertido + Trie + k-gramas)...")
+@st.cache_resource(show_spinner="Indexando o corpus (índice invertido + Trie + k-gramas)...")
 def carregar_motor(versao_dw: str, fonte: str) -> MotorBusca:
     if fonte == "dw":
         from src.search_engine.corpus import carregar_corpus
@@ -104,24 +92,24 @@ def carregar_motor(versao_dw: str, fonte: str) -> MotorBusca:
     else:
         from src.search_engine.sintetico import gerar_corpus
         textos = gerar_corpus(40_000)
-        metas = [{"jogo": "Corpus sintetico", "recomendacao": "-", "horas": 0, "votos_uteis": 0, "data": None}
+        metas = [{"jogo": "Corpus de demonstração", "recomendacao": "-", "horas": 0, "votos_uteis": 0, "data": None}
                  for _ in textos]
     return MotorBusca(textos, metas)
 
 
 def destacar(texto: str, termos: list[str], limite: int = 600) -> str:
     alvo = set(termos)
-    trecho = texto if len(texto) <= limite else texto[:limite].rsplit(" ", 1)[0] + " ..."
-    trecho = trecho.replace("<", "&lt;").replace(">", "&gt;")
+    trecho = texto if len(texto) <= limite else texto[:limite].rsplit(" ", 1)[0] + " …"
+    trecho = ui.e(trecho)
 
     def troca(m: re.Match) -> str:
         palavra = m.group(0)
-        return f"<mark>{palavra}</mark>" if reduzir(normalizar(palavra)) in alvo else palavra
+        return f"<mark>{palavra}</mark>" if alvo and reduzir(normalizar(palavra)) in alvo else palavra
     return re.sub(r"[\wÀ-ÿ]+", troca, trecho)
 
 
 def fmt_int(v) -> str:
-    return f"{int(v):,}".replace(",", ".") if pd.notna(v) else "-"
+    return f"{int(v):,}".replace(",", ".") if v is not None and pd.notna(v) else "-"
 
 
 def num(v) -> float:
@@ -129,138 +117,156 @@ def num(v) -> float:
     return float(v) if v is not None and pd.notna(v) else 0.0
 
 
+def pct(v: float, casas: int = 1) -> str:
+    return f"{v * 100:.{casas}f}%".replace(".", ",")
+
+
+def item_review(pos: int | None, doc: dict, termos: list[str]) -> str:
+    rec = doc.get("recomendacao")
+    selo = ('<span class="rec">Recomenda</span>' if rec == "Recomendado" else
+            '<span class="rec nao">Não recomenda</span>' if rec == "Não recomendado" else "")
+    score = doc.get("score")
+    placar = f'<span class="score">BM25 {score:.3f}</span>' if score is not None else ""
+    meta = [f"{num(doc.get('horas')):.1f} h jogadas".replace(".", ","),
+            f"{fmt_int(doc.get('votos_uteis', 0))} votos úteis"]
+    if doc.get("data"):
+        meta.append(str(doc["data"]))
+    posicao = f'<div class="pos">{pos:02d}</div>' if pos else ""
+    return (f'<div class="painel item{"" if pos else " sem-pos"}">{posicao}<div><div class="cab">'
+            f'<span class="jogo">{ui.e(doc.get("jogo", "-"))}</span>{selo}{placar}</div>'
+            f'<div class="texto">{destacar(doc.get("texto") or "", termos)}</div>'
+            f'<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></div>')
+
+
 # ---------------------------------------------------------------- layout
-dw_ok, dw_msg, total_fato, versao_corpus = status_dw()
+dw_ok, dw_msg, total_fato, versao_corpus, total_jogos = status_dw()
+fonte_busca = "dw" if dw_ok and total_fato > 0 else "sintetico"
 
 with st.sidebar:
-    st.markdown("### 🎮 Steam Reviews Intelligence")
-    st.caption("T2 · Modelagem Informacional & PLN/RI · FUCAPE 2026")
-    st.markdown(f"**Data Warehouse:** {'🟢' if dw_ok else '🔴'} {dw_msg}")
-    if dw_ok:
-        st.markdown(f"**Linhas na fato:** {fmt_int(total_fato)}")
-    fonte_busca = "dw" if dw_ok and total_fato > 0 else "sintetico"
+    st.markdown("**Steam Reviews Intelligence**")
+    st.caption("T2 · Modelagem Informacional e PLN/RI · FUCAPE 2026")
+    st.caption(f"Data Warehouse: **{'conectado' if dw_ok else 'offline'}**")
     if fonte_busca == "sintetico":
-        st.warning("DW vazio ou fora do ar: a busca usa um corpus sintetico ate os DAGs rodarem.")
-    if st.button("🔄 Recarregar dados", width="stretch"):
+        st.caption("A busca usa um corpus de demonstração até a primeira carga do DW.")
+    if st.button("Recarregar dados", width="stretch"):
         st.cache_data.clear()
         st.cache_resource.clear()
         st.rerun()
     st.divider()
-    st.caption("Fonte: API publica da Steam (reviews em PT-BR) → Airflow → Postgres (Star Schema) → este painel.")
+    st.caption("**Fluxo:** API pública da Steam → Airflow (DAG 1 + DAG 2) → Postgres (Star Schema) → este painel")
+    st.caption("[Abrir o Airflow](http://localhost:8080) · Postgres em localhost:5433")
 
-st.markdown("""<div class="hero"><h1>Steam Reviews Intelligence</h1>
-<p>O que os jogadores brasileiros dizem sobre os maiores jogos da Steam: pipeline Airflow, Data Warehouse
-Kimball e busca BM25 com poda WAND.</p></div>""", unsafe_allow_html=True)
+st.html(f"""<div class="painel topo"><div class="marca"><div class="logo"><i></i></div><div>
+<h1>Steam Reviews Intelligence</h1>
+<div class="sobre">T2 · Modelagem Informacional e PLN/RI · FUCAPE 2026 · João Gilberto Leão Vieira</div>
+</div></div><div class="meta">
+<span class="pilula"><b>{fmt_int(total_fato)}</b> reviews</span>
+<span class="pilula"><b>{fmt_int(total_jogos)}</b> jogos</span>
+<span class="pilula escura"><span class="ponto{"" if dw_ok else " off"}"></span>
+{"Pipeline ok" if total_fato > 0 else ("DW vazio" if dw_ok else "DW offline")}</span>
+</div></div>""")
 
-aba_negocio, aba_busca, aba_eng, aba_modelo = st.tabs(
-    ["📊 Visão de Negócios", "🔎 Busca Inteligente", "⚙️ Engenharia & Benchmark", "🧬 Modelo Dimensional"])
+ABAS = {"negocios": "Visão de Negócios", "busca": "Busca Inteligente", "engenharia": "Engenharia & Benchmark",
+        "modelo": "Modelo Dimensional"}
+# ?aba=busca abre o painel direto na aba (util para a demonstracao em video)
+aba_inicial = ABAS.get(str(st.query_params.get("aba", "")).lower())
+aba_negocio, aba_busca, aba_eng, aba_modelo = st.tabs(list(ABAS.values()), default=aba_inicial)
 
 # ======================================================= 1. NEGOCIOS ===
 with aba_negocio:
     periodo = q.periodo_disponivel() if dw_ok and total_fato > 0 else None
     if periodo is None:
-        st.info("O Data Warehouse ainda nao tem dados. Rode `dag_ingestao_raw` no Airflow "
-                "(o `dag_consolidacao_dw` dispara sozinho via Dataset) e clique em Recarregar dados.")
+        st.html(ui.estado_vazio())
     else:
         jogos_df = q.jogos_disponiveis()
         c1, c2 = st.columns([3, 2])
         with c1:
-            escolhidos = st.multiselect("Jogos", jogos_df["nome_jogo"].tolist(),
-                                        placeholder="Todos os jogos")
+            escolhidos = st.multiselect("Jogos", jogos_df["nome_jogo"].tolist(), placeholder="Todos os jogos")
         with c2:
-            intervalo = st.date_input("Período de publicação da review", value=periodo,
+            intervalo = st.date_input("Período de publicação da review", value=periodo, format="DD/MM/YYYY",
                                       min_value=periodo[0], max_value=periodo[1])
             inicio, fim = intervalo if isinstance(intervalo, (tuple, list)) and len(intervalo) == 2 else periodo
         sks = jogos_df[jogos_df["nome_jogo"].isin(escolhidos)]["sk_jogo"].tolist() if escolhidos \
             else jogos_df["sk_jogo"].tolist()
         p = q.params([int(s) for s in sks], inicio, fim)
         k = q.kpis(p)
-
-        m = st.columns(6)
-        m[0].metric("Reviews", fmt_int(k["reviews"]))
-        m[1].metric("% Recomendam", f"{num(k['pct_rec']) * 100:.1f}%")
-        m[2].metric("Horas jogadas (mediana)", f"{num(k['horas_mediana']):.1f} h")
-        m[3].metric("Votos 'útil'", fmt_int(k["votos_uteis"]))
-        m[4].metric("Autores únicos", fmt_int(k["autores"]))
-        m[5].metric("Palavras por review", f"{num(k['palavras_media']):.0f}")
+        st.html(ui.kpis([
+            ("Reviews", fmt_int(k["reviews"]), f"{fmt_int(k['jogos'])} jogos no recorte"),
+            ("Recomendam", pct(num(k["pct_rec"])), "das reviews são positivas"),
+            ("Horas jogadas", f"{num(k['horas_mediana']):.1f} h".replace(".", ","), "mediana ao escrever"),
+            ("Votos úteis", fmt_int(k["votos_uteis"]), "engajamento da comunidade"),
+            ("Autores únicos", fmt_int(k["autores"]), "jogadores distintos"),
+            ("Palavras", f"{num(k['palavras_media']):.0f}", "média por review"),
+        ], destaque=1))
 
         g1, g2 = st.columns([3, 2])
-        with g1:
-            st.markdown("##### Volume mensal de reviews")
+        with g1, st.container(key="card_mes"):
+            st.html(ui.secao("Volume mensal de reviews", "positivas vs. negativas"))
             mes = q.por_mes(p)
-            ch = alt.Chart(mes).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, stroke="white",
-                                         strokeWidth=1).encode(
+            ch = alt.Chart(mes).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, stroke="rgba(255,255,255,.9)",
+                                         strokeWidth=2).encode(
                 x=alt.X("ano_mes:O", title=None, axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("sum(reviews):Q", title="Reviews"),
+                y=alt.Y("sum(reviews):Q", title=None),
                 color=alt.Color("recomendacao:N", scale=COR_RECOMENDACAO),
                 order=alt.Order("recomendacao:N", sort="descending"),
-                tooltip=[alt.Tooltip("ano_mes:O", title="Mes"), alt.Tooltip("recomendacao:N", title="Tipo"),
+                tooltip=[alt.Tooltip("ano_mes:O", title="Mês"), alt.Tooltip("recomendacao:N", title="Tipo"),
                          alt.Tooltip("sum(reviews):Q", title="Reviews", format=",")])
-            st.altair_chart(tema(ch), width="stretch")
-        with g2:
-            st.markdown("##### Taxa de recomendação por jogo")
+            st.altair_chart(tema(ch, 300), width="stretch")
+        with g2, st.container(key="card_jogo"):
+            st.html(ui.secao("Taxa de recomendação", "por jogo"))
             jg = q.por_jogo(p)
-            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=4, color=AZUL, height=14).encode(
-                x=alt.X("pct_rec:Q", title="% recomendam", axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
-                y=alt.Y("jogo:N", sort="-x", title=None),
+            ch = alt.Chart(jg).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=10).encode(
+                x=alt.X("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
+                y=alt.Y("jogo:N", sort="-x", title=None, axis=alt.Axis(labelLimit=180, labelOverlap=False)),
                 tooltip=[alt.Tooltip("jogo:N", title="Jogo"), alt.Tooltip("pct_rec:Q", title="% recomendam", format=".1%"),
                          alt.Tooltip("reviews:Q", title="Reviews", format=","),
                          alt.Tooltip("horas_mediana:Q", title="Horas (mediana)", format=".1f")])
-            st.altair_chart(tema(ch, max(260, 22 * len(jg))), width="stretch")
+            st.altair_chart(tema(ch, max(300, 26 * len(jg))), width="stretch")
 
         g3, g4, g5 = st.columns(3)
-        with g3:
-            st.markdown("##### Quem joga mais recomenda mais?")
+        with g3, st.container(key="card_horas"):
+            st.html(ui.secao("Quem joga mais recomenda mais?", "% positivas por horas jogadas"))
             fh = q.por_faixa_horas(p)
-            ch = alt.Chart(fh).mark_bar(cornerRadiusEnd=4, color=AZUL, width=alt.RelativeBandSize(0.6)).encode(
-                x=alt.X("faixa:N", sort=fh["faixa"].tolist(), title="Horas jogadas ao escrever",
-                        axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("pct_rec:Q", title="% recomendam", axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
+            ch = alt.Chart(fh).mark_bar(cornerRadiusEnd=6, color=PETROLEO, width=alt.RelativeBandSize(0.5)).encode(
+                x=alt.X("faixa:N", sort=fh["faixa"].tolist(), title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False)),
+                y=alt.Y("pct_rec:Q", title=None, axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
                 tooltip=[alt.Tooltip("faixa:N", title="Faixa"), alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam"),
                          alt.Tooltip("reviews:Q", format=",", title="Reviews")])
-            st.altair_chart(tema(ch, 260), width="stretch")
-        with g4:
-            st.markdown("##### Reviews por dia da semana")
+            st.altair_chart(tema(ch, 250), width="stretch")
+        with g4, st.container(key="card_semana"):
+            st.html(ui.secao("Dia da semana", "quando os jogadores escrevem"))
             ds = q.por_dia_semana(p)
-            ch = alt.Chart(ds).mark_bar(cornerRadiusEnd=4, color=AZUL, width=alt.RelativeBandSize(0.6)).encode(
+            ch = alt.Chart(ds).mark_bar(cornerRadiusEnd=6, color=MARINHO, width=alt.RelativeBandSize(0.5)).encode(
                 x=alt.X("dia_semana:N", sort=ds["dia_semana"].tolist(), title=None,
-                        axis=alt.Axis(labelAngle=-30, labelExpr="slice(datum.label, 0, 3)")),
-                y=alt.Y("reviews:Q", title="Reviews"),
+                        axis=alt.Axis(labelAngle=0, labelExpr="slice(datum.label, 0, 3)")),
+                y=alt.Y("reviews:Q", title=None),
                 tooltip=[alt.Tooltip("dia_semana:N", title="Dia"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
                          alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 260), width="stretch")
-        with g5:
-            st.markdown("##### Origem da cópia do jogo")
+            st.altair_chart(tema(ch, 250), width="stretch")
+        with g5, st.container(key="card_origem"):
+            st.html(ui.secao("Origem da cópia", "compra, key ou presente"))
             aq = q.por_aquisicao(p)
-            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=4, color=AZUL, height=16).encode(
-                y=alt.Y("aquisicao:N", sort="-x", title=None),
-                x=alt.X("reviews:Q", title="Reviews"),
+            ch = alt.Chart(aq).mark_bar(cornerRadiusEnd=6, color=MARINHO, height=14).encode(
+                y=alt.Y("aquisicao:N", sort="-x", title=None, axis=alt.Axis(labelLimit=130)),
+                x=alt.X("reviews:Q", title=None),
                 tooltip=[alt.Tooltip("aquisicao:N", title="Origem"), alt.Tooltip("reviews:Q", format=",", title="Reviews"),
                          alt.Tooltip("pct_rec:Q", format=".1%", title="% recomendam")])
-            st.altair_chart(tema(ch, 260), width="stretch")
+            st.altair_chart(tema(ch, 250), width="stretch")
 
-        st.markdown("##### Gêneros")
-        gen = q.por_genero(p)
-        st.dataframe(gen, hide_index=True, width="stretch", column_config={
+        st.html(ui.secao("Gêneros", "volume e satisfação por gênero principal"))
+        st.dataframe(q.por_genero(p), hide_index=True, width="stretch", column_config={
             "genero": "Gênero principal", "jogos": "Jogos", "reviews": st.column_config.NumberColumn("Reviews", format="%d"),
             "pct_rec": st.column_config.ProgressColumn("% recomendam", min_value=0, max_value=1, format="percent")})
 
-        st.markdown("##### As reviews que a comunidade achou mais úteis")
-        for _, ln in q.mais_uteis(p).iterrows():
-            classe = "tag-rec" if ln["recomendacao"] == "Recomendado" else "tag-nao"
-            with st.container(border=True):
-                st.markdown(f"<span class='tag {classe}'>{ln['recomendacao']}</span>"
-                            f"<b>{ln['jogo']}</b> · 👍 {fmt_int(ln['votos_uteis'])} votos úteis · "
-                            f"{ln['horas']:.1f} h jogadas · {ln['data']}", unsafe_allow_html=True)
-                st.markdown(destacar(ln["texto"] or "", [], 450), unsafe_allow_html=True)
+        st.html(ui.secao("As reviews mais úteis", "segundo os votos da própria comunidade"))
+        uteis = q.mais_uteis(p)
+        st.html('<div class="lista">' + "".join(item_review(None, ln.to_dict(), []) for _, ln in uteis.iterrows())
+                + "</div>")
 
 # ========================================================== 2. BUSCA ===
 with aba_busca:
     motor = carregar_motor(versao_corpus, fonte_busca)
-    st.caption(f"Índice: {fmt_int(motor.indice.n_docs)} reviews · {fmt_int(len(motor.indice.postagens))} termos · "
-               f"construído em {motor.tempo_indexacao_s:.1f}s · corretor com "
-               f"{fmt_int(len(motor.corretor.vocabulario))} palavras")
-    c1, c2, c3, c4 = st.columns([5, 1.3, 2, 1.4])
+    c1, c2, c3, c4 = st.columns([5, 1.1, 2, 1.4], vertical_alignment="bottom")
     with c1:
         consulta = st.text_input("O que você quer encontrar nas reviews?", value="jogo travando muito no servdor",
                                  placeholder="ex.: otimização ruim, história emocionante, jogar com amigos")
@@ -272,83 +278,84 @@ with aba_busca:
         corrigir = st.toggle("Corrigir erros", value=True)
 
     ultimo = normalizar(consulta.split()[-1]) if consulta.split() else ""
-    if len(ultimo) >= 2:
-        sugestoes = motor.corretor.autocompletar(ultimo)
-        if sugestoes:
-            st.caption("Autocompletar (Trie, O(|P|)): " + " · ".join(f"`{s}`" for s in sugestoes[:8]))
+    sugestoes = motor.corretor.autocompletar(ultimo) if len(ultimo) >= 2 else []
+    st.html(f'<div class="auto"><span>Autocompletar (Trie):</span>'
+            f'{" ".join(f"<span class=\'sug\'>{ui.e(s)}</span>" for s in sugestoes[:8]) or "<span>—</span>"}'
+            f'<span class="dir">{fmt_int(motor.indice.n_docs)} reviews indexadas · '
+            f'{fmt_int(len(motor.indice.postagens))} termos</span></div>')
 
     if consulta.strip():
         resp = motor.buscar(consulta, int(k_top), algoritmo, corrigir)
+        termos = ", ".join(resp.resultado.termos) or "nenhum termo do vocabulário"
         if resp.correcoes:
-            trocas = ", ".join(f"~~{a}~~ → **{b}**" for a, b in resp.correcoes)
-            st.info(f"Você quis dizer: **{resp.consulta_usada}**  ({trocas}) · "
-                    f"correção em {resp.tempo_correcao_ms:.2f} ms")
+            trocas = ", ".join(f"<s>{ui.e(a)}</s> → {ui.e(b)}" for a, b in resp.correcoes)
+            ms = f"{resp.tempo_correcao_ms:.2f}".replace(".", ",")
+            correcao = f" · corrigido: {trocas} em {ms} ms"
+        else:
+            correcao = ""
+        st.html(f'<div class="nota">Buscando por <b>{ui.e(resp.consulta_usada)}</b>'
+                f'<span class="suave">{correcao} · termos do índice: {ui.e(termos)}</span></div>')
         candidatos = len({d for t in resp.resultado.termos for d in motor.indice.postagens[t].docs}) \
             if resp.resultado.termos else 0
         avaliados = resp.resultado.stats.get("docs_pontuados", 0)
-        m = st.columns(5)
-        m[0].metric("Baseline: BM25 exaustivo", f"{resp.tempo_baseline_ms:.2f} ms",
-                    help="Pontua os N documentos da base e ordena todos (antes)")
-        m[1].metric(NOMES_ALGORITMO[algoritmo], f"{resp.tempo_otimizado_ms:.2f} ms",
-                    delta=f"-{resp.delta_pct:.1f}%" if resp.delta_pct >= 0 else f"+{-resp.delta_pct:.1f}%",
-                    delta_color="inverse")
-        m[2].metric("Speedup", f"{resp.speedup:.1f}×")
-        m[3].metric("Docs pontuados", f"{fmt_int(avaliados)} / {fmt_int(candidatos)}",
-                    help="Documentos pontuados pelo algoritmo otimizado / documentos que contêm algum termo")
-        m[4].metric("Taxa de poda", f"{(1 - avaliados / candidatos) * 100 if candidatos else 0:.1f}%")
         identico = mesmo_top(resp.resultado, resp.baseline)
-        st.caption(("✅ Top-K idêntico ao exaustivo (poda segura)" if identico else "⚠️ Top-K diferente do exaustivo")
-                   + f" · termos analisados: {', '.join(resp.resultado.termos) or '-'}")
+        st.html(ui.duelo("BM25 exaustivo", resp.tempo_baseline_ms, NOMES_ALGORITMO[algoritmo],
+                         resp.tempo_otimizado_ms, resp.speedup, resp.delta_pct,
+                         f"baseline · pontua os {fmt_int(motor.indice.n_docs)} docs e ordena tudo",
+                         f"otimizado · poda dinâmica segura + heap Top-{int(k_top)}"))
+        st.html(ui.kpis([
+            ("Docs pontuados", f"{fmt_int(avaliados)} / {fmt_int(candidatos)}", "otimizado / candidatos"),
+            ("Taxa de poda", pct(1 - avaliados / candidatos) if candidatos else "—", "avaliações evitadas"),
+            ("Top-K igual ao exaustivo", "sim" if identico else "não", "mesmos docs, ordem e scores"),
+            ("Resultados", fmt_int(len(resp.docs)), f"Top-{int(k_top)} por relevância BM25"),
+        ], destaque=2 if identico else None))
 
         if not resp.docs:
-            st.warning("Nenhuma review contém esses termos.")
-        for pos, doc in enumerate(resp.docs, 1):
-            classe = "tag-rec" if doc.get("recomendacao") == "Recomendado" else "tag-nao"
-            with st.container(border=True):
-                st.markdown(
-                    f"**#{pos}** · <span class='tag {classe}'>{doc.get('recomendacao', '-')}</span>"
-                    f"<b>{doc.get('jogo', '-')}</b> · BM25 <code>{doc['score']:.3f}</code> · "
-                    f"{doc.get('horas', 0):.1f} h jogadas · 👍 {fmt_int(doc.get('votos_uteis', 0))} · "
-                    f"{doc.get('data') or ''}", unsafe_allow_html=True)
-                st.markdown(destacar(doc["texto"], resp.resultado.termos), unsafe_allow_html=True)
+            st.html('<div class="vazio"><h3>Nenhuma review contém esses termos</h3>'
+                    '<p>Tente outras palavras ou ative a correção de erros.</p></div>')
+        st.html('<div class="lista">' + "".join(item_review(i, d, resp.resultado.termos)
+                                                for i, d in enumerate(resp.docs, 1)) + "</div>")
 
 # ================================================ 3. ENGENHARIA ========
 with aba_eng:
-    st.markdown("#### Saúde dos pipelines")
+    st.html(ui.secao("Saúde dos pipelines", "estado das últimas execuções via API REST do Airflow"))
     af = status_airflow()
-    cols = st.columns(2)
-    for col, dag_id in zip(cols, ("dag_ingestao_raw", "dag_consolidacao_dw")):
+    cartoes = []
+    for dag_id, papel in (("dag_ingestao_raw", "DAG 1 · ingestão resiliente → raw"),
+                          ("dag_consolidacao_dw", "DAG 2 · consolidação → star schema")):
         info = af[dag_id]
-        with col, st.container(border=True):
-            if not info["ok"]:
-                st.markdown(f"**{dag_id}** · ⚪ API do Airflow indisponível ({info['erro']})")
-                continue
-            runs = info["runs"]
-            if not runs:
-                st.markdown(f"**{dag_id}** · ainda sem execuções")
-                continue
-            icone = {"success": "🟢", "failed": "🔴", "running": "🔵", "queued": "🟡"}
-            st.markdown(f"**{dag_id}** · última: {icone.get(runs[0]['state'], '⚪')} `{runs[0]['state']}` "
-                        f"em {str(runs[0].get('end_date') or runs[0].get('start_date'))[:19]}")
-            st.caption("Últimas execuções: " + " ".join(icone.get(r["state"], "⚪") for r in runs))
+        if not info["ok"]:
+            estado, sub, pontos = '<span class="estado">API indisponível</span>', f"{papel} · {info['erro']}", ""
+        elif not info["runs"]:
+            estado, sub, pontos = '<span class="estado">sem execuções</span>', papel, ""
+        else:
+            ultima = info["runs"][0]
+            quando = str(ultima.get("end_date") or ultima.get("start_date") or "")[:16].replace("T", " ")
+            estado = f'<span class="estado {ui.e(ultima["state"])}">{ui.e(ultima["state"])}</span>'
+            sub = f"{papel} · última em {quando}"
+            pontos = "".join(f'<i class="{ui.e(r["state"])}" title="{ui.e(r["state"])}"></i>'
+                             for r in reversed(info["runs"]))
+        cartoes.append(f'<div class="painel dag"><span class="nome">{dag_id}</span>{estado}'
+                       f'<div class="sub">{ui.e(sub)}</div><div class="pontos">{pontos}</div></div>')
+    st.html(f'<div class="dags">{"".join(cartoes)}</div>')
 
     if dw_ok:
         try:
             ing = q.ultima_ingestao()
             if not ing.empty:
-                st.markdown("##### DAG 1 · última ingestão por jogo (resiliência e paginação)")
-                t = st.columns(4)
-                t[0].metric("Requisições HTTP", fmt_int(ing["requisicoes"].sum()))
-                t[1].metric("Retentativas (backoff)", fmt_int(ing["retentativas"].sum()))
-                t[2].metric("Respostas 429", fmt_int(ing["respostas_429"].sum()))
-                t[3].metric("Reviews novas / alteradas",
-                            f"{fmt_int(ing['novas'].sum())} / {fmt_int(ing['alteradas'].sum())}")
+                st.html(ui.secao("DAG 1 · última ingestão", "paginação por cursor, backoff e rate limit por jogo"))
+                st.html(ui.kpis([
+                    ("Requisições HTTP", fmt_int(ing["requisicoes"].sum()), "à API da Steam"),
+                    ("Retentativas", fmt_int(ing["retentativas"].sum()), "exponential backoff + jitter"),
+                    ("Respostas 429", fmt_int(ing["respostas_429"].sum()), "rate limit tratado"),
+                    ("Novas / alteradas", f"{fmt_int(ing['novas'].sum())} / {fmt_int(ing['alteradas'].sum())}",
+                     "upsert idempotente"),
+                ]))
                 st.dataframe(ing, hide_index=True, width="stretch")
             etl = q.historico_etl()
             if not etl.empty:
-                st.markdown("##### DAG 2 · histórico de cargas e prova de idempotência")
-                st.caption("Reexecutar o DAG 2 (ou o DAG 1 sem reviews novas) mantém `total_fato` e "
-                           "`soma_votos_uteis` constantes: o upsert pela chave natural não duplica nem infla métricas.")
+                st.html(ui.secao("DAG 2 · prova de idempotência",
+                                 "reexecutar mantém total_fato e soma_votos_uteis constantes"))
                 st.dataframe(etl, hide_index=True, width="stretch")
             hist = q.historico_ingestao()
             if not hist.empty:
@@ -357,112 +364,109 @@ with aba_eng:
         except Exception as exc:  # noqa: BLE001
             st.info(f"Tabelas de auditoria ainda não existem ({exc.__class__.__name__}). Rode os DAGs.")
 
-    st.divider()
-    st.markdown("#### Benchmark ao vivo · Antes vs. Depois")
-    st.caption("Mesmo índice, mesmas consultas. Tempo com `time.perf_counter()` (média de N execuções, "
-               "1 aquecimento, GC desligado). Δ% = (T_baseline − T_otimizado) / T_baseline × 100.")
-    b1, b2, b3 = st.columns([1, 1, 3])
+    st.html(ui.secao("Benchmark · Antes vs. Depois",
+                     "mesmo índice e mesmas consultas · time.perf_counter() · Δ% = (T_base − T_opt) / T_base"))
+    b1, b2, b3 = st.columns([1, 1, 2], vertical_alignment="bottom")
     repeticoes = b1.slider("Repetições", 3, 30, 7)
     k_bench = b2.slider("K", 1, 100, 10)
-    if b3.button("▶️ Rodar benchmark completo", type="primary"):
-        with st.spinner("Medindo 5 algoritmos x 12 consultas + correção ortográfica..."):
+    if b3.button("Rodar benchmark completo", type="primary", width="stretch"):
+        with st.spinner("Medindo 5 algoritmos × 12 consultas + correção ortográfica..."):
             st.session_state["bench"] = benchmark_ranking(motor.indice, CONSULTAS_PADRAO, k_bench, repeticoes)
             st.session_state["bench_ort"] = benchmark_ortografia(motor.corretor, ERROS_PADRAO, 3)
+            st.session_state["bench_origem"] = "medido agora neste painel"
 
     if "bench" not in st.session_state:
         salvo = RAIZ / "docs" / "resultados_benchmark.json"
         if salvo.exists():
             dados = json.loads(salvo.read_text(encoding="utf-8"))
-            st.info(f"Mostrando o último benchmark salvo ({dados['corpus']}, {dados['ambiente']['gerado_em']}). "
-                    "Clique em Rodar para medir agora.")
             st.session_state["bench"] = (dados["ranking"]["consultas"], dados["ranking"]["resumo"])
             st.session_state["bench_ort"] = (dados["ortografia"]["palavras"], dados["ortografia"]["resumo"])
             st.session_state["escala"] = dados.get("escala", [])
+            st.session_state["bench_origem"] = f"último benchmark salvo · {dados['corpus']} · {dados['ambiente']['gerado_em']}"
 
     if "bench" in st.session_state:
         linhas, resumo = st.session_state["bench"]
-        r = st.columns(5)
-        r[0].metric("Baseline exaustivo", f"{resumo['exaustivo_ms_medio']:.2f} ms")
-        r[1].metric("WAND + Champion Lists", f"{resumo['wand_campeoes_ms_medio']:.2f} ms",
-                    delta=f"-{resumo['wand_campeoes_delta_pct']:.1f}%", delta_color="inverse")
-        r[2].metric("Speedup", f"{resumo['wand_campeoes_speedup']:.1f}×")
-        r[3].metric("Docs podados", f"{resumo['wand_campeoes_poda_docs_pct']:.1f}%")
-        r[4].metric("Top-K idêntico", "✅ 100%" if resumo["wand_campeoes_topk_identico"] and
-                    resumo["bmw_topk_identico"] else "⚠️ não")
+        st.caption(f"Fonte: {st.session_state.get('bench_origem', '')}")
+        st.html(ui.duelo("BM25 exaustivo", resumo["exaustivo_ms_medio"], "WAND + Champion Lists",
+                         resumo["wand_campeoes_ms_medio"], resumo["wand_campeoes_speedup"],
+                         resumo["wand_campeoes_delta_pct"], f"média de {resumo['consultas']} consultas",
+                         f"poda de {resumo['wand_campeoes_poda_docs_pct']:.1f}% dos candidatos"))
+        identico = resumo["wand_campeoes_topk_identico"] and resumo["bmw_topk_identico"]
+        st.html(ui.kpis([
+            ("WAND clássico", f"{resumo['wand_ms_medio']:.2f} ms", f"{resumo['wand_speedup']:.1f}× · sem aquecer o heap"),
+            ("Block-Max WAND", f"{resumo['bmw_ms_medio']:.2f} ms", f"{resumo['bmw_speedup']:.1f}× · poda {resumo['bmw_poda_docs_pct']:.1f}%"),
+            ("TAAT + heap", f"{resumo['taat_heap_ms_medio']:.2f} ms", f"{resumo['taat_heap_speedup']:.1f}× · ablação, sem poda"),
+            ("Memória/consulta", f"{resumo.get('wand_campeoes_mem_kb_medio', 0):.0f} KB",
+             f"vs. {resumo.get('exaustivo_mem_kb_medio', 0):,.0f} KB no exaustivo".replace(",", ".")),
+            ("Top-K igual ao exaustivo", "100%" if identico else "não", "poda segura"),
+        ], destaque=4 if identico else None))
 
         longo = pd.DataFrame([{"consulta": ln["consulta"], "algoritmo": nome, "ms": ln[f"{chave}_ms"]}
                               for ln in linhas for chave, nome in
-                              [("exaustivo", "1. BM25 exaustivo (baseline)"), ("wand", "2. WAND classico"),
+                              [("exaustivo", "1. BM25 exaustivo (baseline)"), ("wand", "2. WAND clássico"),
                                ("wand_campeoes", "3. WAND + Champion Lists"), ("bmw", "4. Block-Max WAND")]])
         ordem_algo = sorted(longo["algoritmo"].unique())
-        ch = alt.Chart(longo).mark_bar(cornerRadiusEnd=3, height=alt.RelativeBandSize(0.85)).encode(
-            y=alt.Y("consulta:N", title=None, sort=[ln["consulta"] for ln in linhas]),
-            yOffset=alt.YOffset("algoritmo:N", sort=ordem_algo),
-            x=alt.X("ms:Q", title="Tempo médio por consulta (ms) · menor é melhor"),
-            color=alt.Color("algoritmo:N", sort=ordem_algo,
-                            scale=alt.Scale(domain=ordem_algo, range=[LARANJA, AMARELO, AZUL, AQUA])),
-            tooltip=["consulta", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
-        st.altair_chart(tema(ch, 34 * len(linhas) + 40), width="stretch")
+        with st.container(key="card_bench"):
+            st.html(ui.secao("Tempo por consulta", "menor é melhor"))
+            ch = alt.Chart(longo).mark_bar(cornerRadiusEnd=4, height=alt.RelativeBandSize(0.8)).encode(
+                y=alt.Y("consulta:N", title=None, sort=[ln["consulta"] for ln in linhas], axis=alt.Axis(labelLimit=220)),
+                yOffset=alt.YOffset("algoritmo:N", sort=ordem_algo),
+                x=alt.X("ms:Q", title="ms"),
+                color=alt.Color("algoritmo:N", sort=ordem_algo,
+                                scale=alt.Scale(domain=ordem_algo, range=[CORAL, ACO, MARINHO, PETROLEO])),
+                tooltip=["consulta", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
+            st.altair_chart(tema(ch, 36 * len(linhas) + 40), width="stretch")
 
-        tabela = pd.DataFrame([{
-            "Consulta": ln["consulta"], "Candidatos": ln["candidatos"],
-            "Exaustivo (ms)": ln["exaustivo_ms"], "TAAT+heap (ms)": ln["taat_heap_ms"], "WAND (ms)": ln["wand_ms"],
-            "WAND+CL (ms)": ln["wand_campeoes_ms"], "BMW (ms)": ln["bmw_ms"],
-            "Δ% WAND+CL": ln["wand_campeoes_delta_pct"], "Speedup": ln["wand_campeoes_speedup"],
-            "Poda %": ln["wand_campeoes_poda_docs_pct"], "Top-K =": "✅" if ln["wand_campeoes_mesmo_topk"] else "⚠️",
-        } for ln in linhas])
-        st.dataframe(tabela, hide_index=True, width="stretch")
+        with st.expander("Tabela completa por consulta"):
+            st.dataframe(pd.DataFrame([{
+                "Consulta": ln["consulta"], "Candidatos": ln["candidatos"],
+                "Exaustivo (ms)": ln["exaustivo_ms"], "TAAT+heap (ms)": ln["taat_heap_ms"], "WAND (ms)": ln["wand_ms"],
+                "WAND+CL (ms)": ln["wand_campeoes_ms"], "BMW (ms)": ln["bmw_ms"],
+                "Δ% WAND+CL": ln["wand_campeoes_delta_pct"], "Speedup": ln["wand_campeoes_speedup"],
+                "Poda %": ln["wand_campeoes_poda_docs_pct"], "Top-K igual": "sim" if ln["wand_campeoes_mesmo_topk"] else "não",
+            } for ln in linhas]), hide_index=True, width="stretch")
 
         escala = st.session_state.get("escala") or []
         if escala:
-            st.markdown("##### Escalabilidade: o ganho cresce com o tamanho da base")
-            esc = pd.DataFrame([{"documentos": e["documentos"], "algoritmo": nome, "ms": e[chave]}
-                                for e in escala for chave, nome in
-                                [("exaustivo_ms_medio", "BM25 exaustivo (baseline)"),
-                                 ("wand_campeoes_ms_medio", "WAND + Champion Lists")]])
-            ch = alt.Chart(esc).mark_line(point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=2).encode(
-                x=alt.X("documentos:Q", title="Documentos indexados", axis=alt.Axis(format="~s")),
-                y=alt.Y("ms:Q", title="Tempo médio (ms)"),
-                color=alt.Color("algoritmo:N", scale=alt.Scale(domain=["BM25 exaustivo (baseline)",
-                                                                        "WAND + Champion Lists"],
-                                                                range=[LARANJA, AZUL])),
-                tooltip=["documentos", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
-            st.altair_chart(tema(ch, 280), width="stretch")
+            with st.container(key="card_escala"):
+                st.html(ui.secao("Escalabilidade", "o custo do exaustivo cresce com N; o do WAND, quase só com K"))
+                esc = pd.DataFrame([{"documentos": e["documentos"], "algoritmo": nome, "ms": e[chave]}
+                                    for e in escala for chave, nome in
+                                    [("exaustivo_ms_medio", "BM25 exaustivo (baseline)"),
+                                     ("wand_campeoes_ms_medio", "WAND + Champion Lists")]])
+                ch = alt.Chart(esc).mark_line(point=alt.OverlayMarkDef(size=80, filled=True), strokeWidth=2.5).encode(
+                    x=alt.X("documentos:Q", title="documentos indexados", axis=alt.Axis(format="~s")),
+                    y=alt.Y("ms:Q", title="ms"),
+                    color=alt.Color("algoritmo:N", scale=alt.Scale(domain=["BM25 exaustivo (baseline)",
+                                                                            "WAND + Champion Lists"],
+                                                                    range=[CORAL, MARINHO])),
+                    tooltip=["documentos", "algoritmo", alt.Tooltip("ms:Q", format=".3f")])
+                st.altair_chart(tema(ch, 280), width="stretch")
 
     if "bench_ort" in st.session_state:
         linhas_o, resumo_o = st.session_state["bench_ort"]
-        st.markdown("##### Correção ortográfica · Trie + k-gramas/Jaccard + Levenshtein vs. Levenshtein força-bruta")
-        r = st.columns(4)
-        r[0].metric("Força bruta (vocabulário inteiro)", f"{resumo_o['forca_bruta_ms_medio']:.1f} ms")
-        r[1].metric("2 estágios", f"{resumo_o['dois_estagios_ms_medio']:.2f} ms",
-                    delta=f"-{resumo_o['delta_pct']:.1f}%", delta_color="inverse")
-        r[2].metric("Speedup", f"{resumo_o['speedup']:.0f}×")
-        r[3].metric("Mesma sugestão", f"{resumo_o['concordancia_pct']:.0f}%")
-        st.dataframe(pd.DataFrame(linhas_o), hide_index=True, width="stretch")
+        st.html(ui.secao("Correção ortográfica", "Trie + k-gramas/Jaccard + Levenshtein vs. Levenshtein força-bruta"))
+        st.html(ui.duelo("Levenshtein força-bruta", resumo_o["forca_bruta_ms_medio"], "2 estágios",
+                         resumo_o["dois_estagios_ms_medio"], resumo_o["speedup"], resumo_o["delta_pct"],
+                         "compara com o vocabulário inteiro",
+                         f"mesma sugestão em {resumo_o['concordancia_pct']:.0f}% dos casos"))
+        with st.expander("Detalhe por palavra"):
+            st.dataframe(pd.DataFrame(linhas_o), hide_index=True, width="stretch")
 
     with st.expander("Estatísticas do índice invertido"):
         st.json(motor.indice.estatisticas())
 
 # =============================================== 4. MODELO DIMENSIONAL ==
 with aba_modelo:
-    st.markdown("#### Granularidade da fato")
-    st.success("**`dw.fato_review`: cada linha representa UMA review publicada por um jogador sobre um jogo "
-               "na Steam, na data em que a review foi criada.**")
-    st.markdown("""
-| Tabela | Papel | Chave substituta | Chave natural |
-|---|---|---|---|
-| `fato_review` | Fato transacional (grão = 1 review) | `sk_fato` | `recommendationid` (degenerada) |
-| `dim_tempo` | Calendário (dia, mês, trimestre, semestre, dia da semana) | `sk_tempo` | `data_completa` |
-| `dim_jogo` | Jogo avaliado (gênero, desenvolvedora, preço, lançamento) | `sk_jogo` | `app_id` |
-| `dim_autor` | Jogador (tamanho da biblioteca, experiência como avaliador) | `sk_autor` | `steamid` |
-| `dim_perfil_review` | *Junk dimension*: recomendado, compra, grátis, acesso antecipado, Steam Deck | `sk_perfil` | combinação das 5 flags |
-| `dim_review` | Texto da review (corpus da busca) | `sk_review` | `recommendationid` |
-""")
+    st.html('<div class="painel grao"><b>Granularidade da fato dw.fato_review:</b> cada linha representa '
+            '<b>uma review publicada por um jogador sobre um jogo na Steam, na data em que a review foi criada.</div>')
+    st.html(ui.secao("Star Schema", "surrogate keys inteiras · membro desconhecido −1 · FKs reais"))
+    st.html(ui.diagrama_estrela())
     if dw_ok:
         try:
-            st.markdown("##### Volume por camada")
+            st.html(ui.secao("Volume por camada", "bronze (raw) → staging → Data Warehouse"))
             st.dataframe(q.contagem_tabelas(), hide_index=True, width="stretch")
-            st.markdown("##### Amostra da fato (só chaves substitutas + métricas)")
+            st.html(ui.secao("Amostra da fato", "só chaves substitutas e métricas"))
             st.dataframe(q.amostra_fato(), hide_index=True, width="stretch")
         except Exception as exc:  # noqa: BLE001
             st.info(f"Tabelas ainda não criadas ({exc.__class__.__name__}).")

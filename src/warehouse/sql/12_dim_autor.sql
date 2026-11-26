@@ -4,12 +4,12 @@ SELECT DISTINCT ON (s.steamid)
     s.steamid,
     s.autor_qtd_jogos,
     s.autor_qtd_reviews,
-    CASE WHEN s.autor_qtd_jogos IS NULL THEN 'Nao informado'
+    CASE WHEN s.autor_qtd_jogos IS NULL THEN 'Não informado'
          WHEN s.autor_qtd_jogos < 10   THEN '1. Ate 9 jogos'
          WHEN s.autor_qtd_jogos < 50   THEN '2. 10 a 49 jogos'
          WHEN s.autor_qtd_jogos < 200  THEN '3. 50 a 199 jogos'
          ELSE '4. 200+ jogos' END,
-    CASE WHEN s.autor_qtd_reviews IS NULL THEN 'Nao informado'
+    CASE WHEN s.autor_qtd_reviews IS NULL THEN 'Não informado'
          WHEN s.autor_qtd_reviews <= 1  THEN '1. Primeira review'
          WHEN s.autor_qtd_reviews < 10  THEN '2. Ocasional (2-9)'
          WHEN s.autor_qtd_reviews < 50  THEN '3. Frequente (10-49)'

@@ -13,13 +13,13 @@ SELECT
     CASE WHEN EXTRACT(MONTH FROM g.d) <= 6 THEN 1 ELSE 2 END,
     EXTRACT(QUARTER FROM g.d)::INTEGER,
     EXTRACT(MONTH FROM g.d)::INTEGER,
-    (ARRAY['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto',
+    (ARRAY['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto',
            'Setembro','Outubro','Novembro','Dezembro'])[EXTRACT(MONTH FROM g.d)::INTEGER],
     to_char(g.d, 'YYYY-MM'),
     EXTRACT(DAY FROM g.d)::INTEGER,
     EXTRACT(ISODOW FROM g.d)::INTEGER,
-    (ARRAY['Segunda-feira','Terca-feira','Quarta-feira','Quinta-feira','Sexta-feira',
-           'Sabado','Domingo'])[EXTRACT(ISODOW FROM g.d)::INTEGER],
+    (ARRAY['Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira',
+           'Sábado','Domingo'])[EXTRACT(ISODOW FROM g.d)::INTEGER],
     EXTRACT(ISODOW FROM g.d) IN (6, 7),
     EXTRACT(WEEK FROM g.d)::INTEGER
 FROM limites l

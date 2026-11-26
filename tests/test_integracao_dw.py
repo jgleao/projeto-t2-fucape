@@ -103,7 +103,7 @@ def test_pipeline_completo_e_idempotente(banco):
     assert texto == "Jogo muito bom, travando as vezes"   # BBCode removido
     assert engracados == 0                                 # overflow 4294967295 tratado
     assert (jogo, preco, rec) == ("Stardew Valley", 24.99, "Recomendado")
-    assert dia.endswith("feira") or dia in ("Sabado", "Domingo")
+    assert dia.endswith("feira") or dia in ("Sábado", "Domingo")
 
 
 def test_corpus_da_busca_vem_do_dw(banco):

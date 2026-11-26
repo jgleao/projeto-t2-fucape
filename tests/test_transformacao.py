@@ -28,7 +28,7 @@ def test_desaninhamento_de_appdetails():
     }}
     linha = transformar_detalhes(413150, objeto)
     assert linha[0] == 413150 and linha[1] == "Stardew Valley"
-    assert linha[5] == "Indie" and linha[6] == "Indie, Simulacao"
+    assert linha[5] == "Indie" and linha[6] == "Indie, Simulação"
     assert linha[8] == Decimal("24.99") and linha[9] == date(2016, 2, 26) and linha[10] == 2016
     assert linha[11] == "Uma fazenda."
 
