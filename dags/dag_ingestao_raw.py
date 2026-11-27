@@ -58,6 +58,9 @@ default_args = {
         "max_paginas_incremental": Param(CFG.max_paginas_incremental, type="integer", minimum=1, maximum=200,
                                          description="Paginas por jogo quando ja existe watermark"),
         "idioma": Param(CFG.idioma, type="string", description="Idioma das reviews na API da Steam"),
+        "reprocessar_historico": Param(False, type="boolean",
+                                       description="Ignora o watermark e recoleta max_paginas_inicial paginas "
+                                                   "por jogo (aprofunda o historico; o upsert evita duplicatas)"),
     },
     doc_md=__doc__,
 )
@@ -103,7 +106,7 @@ def dag_ingestao_raw():
         # modo inicial no retry (o upsert torna o recomeco seguro), e o watermark so
         # avanca quando a janela inteira foi coberta.
         carga_completa, watermark = raw_store.ler_estado(app_id)
-        incremental = carga_completa and watermark is not None
+        incremental = carga_completa and watermark is not None and not params["reprocessar_historico"]
         if incremental:
             max_paginas = params["max_paginas_incremental"]
             parar_antes = watermark - CFG.sobreposicao_segundos

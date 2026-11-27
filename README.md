@@ -13,11 +13,19 @@
 | **Tema** | Entretenimento & Games: avaliações (reviews) em português de 16 jogos populares da Steam |
 
 > **Destaques**
-> * **39.961 reviews reais** em PT-BR na primeira carga (16 jogos × até 2.500 reviews cada), coletadas via API pública com paginação por cursor, *rate limit* e *exponential backoff* com jitter.
+> * **159.961 reviews reais** em PT-BR (16 jogos × até 10.000 reviews cada, de 2021 a 2026), coletadas via API pública com paginação por cursor, *rate limit* e *exponential backoff* com jitter.
 > * Modelo estrela com **5 dimensões** (incluindo uma *junk dimension* e membros desconhecidos `-1`), surrogate keys inteiras, FKs reais e **6 checks de qualidade** que barram a carga.
 > * **3 técnicas de RI** implementadas do zero em Python puro, todas com **prova automática de segurança**: o Top-K otimizado (documentos **e** scores, com desempate idêntico) é comparado com o exaustivo em 480 consultas aleatórias e em 60 índices montados para gerar empates.
 > * Idempotência **comprovada por código**: teste de integração contra Postgres real no CI e script de impressão digital (MD5) do DW antes e depois do reprocessamento.
 > * **126 testes automatizados**, lint PEP 8 (ruff) e GitHub Actions que valida o `docker-compose.yml` e importa as DAGs na imagem oficial do Airflow.
+
+### O painel
+
+| Visão de Negócios | Busca Inteligente |
+|---|---|
+| ![Visão de negócios: KPIs, medidor de recomendação e tendência mensal](docs/img/painel_negocios.png) | ![Busca: correção ortográfica, baseline vs. WAND e resultados destacados](docs/img/painel_busca.png) |
+| **Engenharia & Benchmark** | **Modelo Dimensional** |
+| ![Engenharia: saúde das DAGs, auditoria da ingestão e benchmark](docs/img/painel_engenharia.png) | ![Modelo dimensional: granularidade e star schema](docs/img/painel_modelo.png) |
 
 ---
 
@@ -243,60 +251,62 @@ O corpus é o `texto_limpo` da `dim_review`. O pré-processamento normaliza (min
 
 Método: média de 7 execuções com `time.perf_counter()`, 1 aquecimento, coletor de lixo desligado durante a medição, K = 10, mesmo índice e mesmas consultas para todos os algoritmos. `Δ% = (T_baseline − T_otimizado) / T_baseline × 100`; `Speedup = T_baseline / T_otimizado`; `Poda = % dos documentos candidatos (que contêm algum termo) que não precisaram ser pontuados`.
 
-**Corpus:** as reviews reais do Data Warehouse. Das 39.961 reviews coletadas, 26.699 têm 3 palavras ou mais e entram no índice: 26.832 termos, 464.284 postagens, 20,5 termos por review em média. Medido dentro do container do painel (Python 3.12.16), em 2026-11-27. As tabelas completas estão em [`docs/resultados_benchmark.md`](docs/resultados_benchmark.md) e são regeneradas por `docker compose exec dashboard python -m scripts.benchmark`; o painel repete a medição ao vivo.
+**Corpus:** as reviews reais do Data Warehouse. Das 159.961 reviews coletadas, 105.957 têm 3 palavras ou mais e entram no índice: 54.500 termos, 1.821.516 postagens, 20,3 termos por review em média. Medido dentro do container do painel (Python 3.12.16), em 2026-11-27. As tabelas completas estão em [`docs/resultados_benchmark.md`](docs/resultados_benchmark.md) e são regeneradas por `docker compose exec dashboard python -m scripts.benchmark`; o painel repete a medição ao vivo.
 
 ### 5.1 Ranqueamento Top-K: BM25 exaustivo vs. poda dinâmica
 
 | Consulta | Candidatos | Exaustivo (ms) | TAAT+heap (ms) | WAND (ms) | **WAND + CL (ms)** | BMW (ms) | Δ% | Speedup | Poda | Top-K = |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|
-| jogo travando muito | 17.642 | 5,79 | 5,00 | 5,72 | **0,11** | 0,12 | 98,1% | 51× | 99,8% | ✅ |
-| servidor lag multiplayer | 257 | 1,27 | 0,07 | 0,19 | **0,14** | 0,18 | 88,7% | 8,8× | 84,0% | ✅ |
-| cheater hacker banido | 232 | 1,00 | 0,11 | 0,32 | **0,21** | 0,27 | 79,4% | 4,9× | 36,6% | ✅ |
-| preco caro promocao | 471 | 1,29 | 0,23 | 0,48 | **0,38** | 0,61 | 70,8% | 3,4× | 72,2% | ✅ |
-| otimizacao ruim fps baixo | 861 | 1,37 | 0,22 | 0,47 | **0,46** | 0,68 | 66,5% | 3,0× | 82,8% | ✅ |
-| bugs crash fechando sozinho | 719 | 1,19 | 0,18 | 0,33 | **0,47** | 0,51 | 60,5% | 2,5× | 91,8% | ✅ |
-| jogar com amigos | 3.701 | 2,25 | 1,10 | 1,76 | **1,33** | 2,02 | 40,9% | 1,7× | 86,5% | ✅ |
-| musica trilha sonora incrivel | 2.343 | 2,20 | 0,89 | 1,49 | **1,44** | 2,91 | 34,4% | 1,5× | 81,6% | ✅ |
-| vale a pena comprar | 1.820 | 1,86 | 0,75 | 1,21 | **1,25** | 1,55 | 33,2% | 1,5× | 69,6% | ✅ |
-| melhor jogo que ja joguei | 16.737 | 5,63 | 4,75 | 4,30 | **4,14** | 7,05 | 26,5% | 1,4× | 92,8% | ✅ |
-| graficos lindos mundo aberto | 2.861 | 2,06 | 0,95 | 1,61 | **1,71** | 2,38 | 17,1% | 1,2× | 80,9% | ✅ |
-| historia emocionante personagens | 3.614 | 2,23 | 1,14 | 2,54 | **2,32** | 0,78 | -4,1% | 1,0× | 71,4% | ✅ |
+| jogo travando muito | 69.763 | 21,36 | 19,71 | 5,61 | **0,23** | 0,34 | 98,9% | 94× | 99,9% | ✅ |
+| servidor lag multiplayer | 1.027 | 3,58 | 0,30 | 0,41 | **0,32** | 0,52 | 91,2% | 11,4× | 90,5% | ✅ |
+| cheater hacker banido | 984 | 3,72 | 0,32 | 0,56 | **0,57** | 0,67 | 84,6% | 6,5× | 47,8% | ✅ |
+| bugs crash fechando sozinho | 3.212 | 4,88 | 0,93 | 1,07 | **1,03** | 1,96 | 78,9% | 4,8× | 95,6% | ✅ |
+| otimizacao ruim fps baixo | 3.525 | 5,30 | 1,07 | 1,46 | **1,73** | 2,47 | 67,4% | 3,1× | 90,6% | ✅ |
+| historia emocionante personagens | 14.218 | 9,23 | 4,25 | 4,60 | **3,88** | 1,52 | 58,0% | 2,4× | 89,5% | ✅ |
+| preco caro promocao | 2.161 | 4,61 | 0,79 | 1,73 | **1,95** | 2,24 | 57,7% | 2,4× | 73,2% | ✅ |
+| musica trilha sonora incrivel | 9.472 | 9,33 | 2,93 | 5,09 | **4,79** | 7,46 | 48,7% | 1,9× | 86,7% | ✅ |
+| vale a pena comprar | 7.564 | 7,13 | 2,35 | 3,30 | **3,79** | 4,73 | 46,8% | 1,9× | 88,9% | ✅ |
+| jogar com amigos | 14.537 | 8,43 | 3,78 | 5,65 | **5,46** | 8,35 | 35,2% | 1,5× | 85,3% | ✅ |
+| melhor jogo que ja joguei | 65.990 | 22,88 | 17,38 | 16,54 | **16,65** | 27,73 | 27,2% | 1,4× | 92,4% | ✅ |
+| graficos lindos mundo aberto | 11.513 | 8,12 | 3,10 | 5,94 | **5,99** | 9,53 | 26,3% | 1,4× | 86,9% | ✅ |
 
 | Algoritmo | Tempo médio | Δ% | Speedup | Poda | Memória/consulta |
 |---|---:|---:|---:|---:|---:|
-| BM25 exaustivo (baseline) | 2,35 ms | — | 1,0× | 0% | 1.583 KB |
-| TAAT + heap (ablação) | 1,28 ms | 45,3% | 1,83× | 0% | — |
-| WAND clássico | 1,70 ms | 27,5% | 1,38× | 83,3% | 2 KB |
-| **WAND + Champion Lists** | **1,16 ms** | **50,4%** | **2,02×** | **90,6%** | **14 KB** |
-| Block-Max WAND | 1,59 ms | 32,3% | 1,48× | 93,6% | 14 KB |
+| BM25 exaustivo (baseline) | 9,05 ms | — | 1,0× | 0% | 6.316 KB |
+| TAAT + heap (ablação) | 4,74 ms | 47,6% | 1,91× | 0% | — |
+| WAND clássico | 4,33 ms | 52,1% | 2,09× | 90,8% | 2 KB |
+| **WAND + Champion Lists** | **3,87 ms** | **57,3%** | **2,34×** | **93,2%** | **15 KB** |
+| Block-Max WAND | 5,63 ms | 37,8% | 1,61× | 94,7% | 15 KB |
 
 ### 5.2 Correção ortográfica: 2 estágios vs. Levenshtein força-bruta
 
 | Métrica | Força bruta | 2 estágios |
 |---|---:|---:|
-| Tempo médio por palavra | 226,0 ms | **2,80 ms** |
-| Candidatos avaliados com Levenshtein | 15.617 (vocabulário inteiro) | 8 a 194 |
-| Δ% / Speedup | — | **98,8% / 81×** |
+| Tempo médio por palavra | 470,9 ms | **4,90 ms** |
+| Candidatos avaliados com Levenshtein | 31.276 (vocabulário inteiro) | 15 a 341 |
+| Δ% / Speedup | — | **99,0% / 96×** |
 | Mesma sugestão que a força bruta | — | **100%** (12/12) |
-| Autocompletar por prefixo (Trie) | — | 0,0006 ms |
+| Autocompletar por prefixo (Trie) | — | 0,0005 ms |
 
 ### 5.3 Escalabilidade (prefixos do corpus real)
 
 | Documentos | Exaustivo | WAND + CL | Block-Max | Speedup WAND + CL | Poda |
 |---:|---:|---:|---:|---:|---:|
-| 5.000 | 0,33 ms | 0,47 ms | 0,62 ms | 0,70× | 74,6% |
-| 10.000 | 0,69 ms | 0,89 ms | 1,13 ms | 0,78× | 78,0% |
-| 20.000 | 1,47 ms | 0,86 ms | 0,99 ms | 1,72× | 89,5% |
-| 26.699 | 2,48 ms | 1,41 ms | 1,46 ms | 1,76× | 90,6% |
+| 5.000 | 0,38 ms | 0,43 ms | 0,70 ms | 0,88× | 74,6% |
+| 10.000 | 0,74 ms | 0,81 ms | 1,14 ms | 0,91× | 78,0% |
+| 20.000 | 1,53 ms | 0,91 ms | 1,26 ms | 1,67× | 89,5% |
+| 40.000 | 2,92 ms | 1,53 ms | 2,02 ms | 1,90× | 91,6% |
+| 80.000 | 6,81 ms | 3,22 ms | 4,06 ms | 2,12× | 93,0% |
+| 105.957 | 10,13 ms | 4,31 ms | 6,59 ms | 2,35× | 93,2% |
 
 ### 5.4 Interpretação
 
-* **Ganho médio de 2,0×, sem perder nada.** O WAND + Champion Lists responde em 1,16 ms contra 2,35 ms do exaustivo (50,4% menos tempo), pontuando só 9,4% dos candidatos. O Top-K é **idêntico** ao exaustivo (mesmos documentos, mesma ordem, mesmos scores) nas 12 consultas. A memória por consulta cai de 1.583 KB para 14 KB.
-* **O ganho depende muito da consulta.** Em "jogo travando muito" são 17.642 candidatos e o WAND aquecido resolve em 0,11 ms (**51×**, 99,8% de poda): um termo raro com limite alto deixa os termos frequentes sem chance de entrar no Top-K sozinhos, e quase tudo é saltado. Em "historia emocionante personagens" os termos têm frequência e limites parecidos, nenhum domina, e o WAND + CL empata com o exaustivo (0,96×); nessa consulta o Block-Max WAND, que usa limites locais por bloco, é o melhor (0,78 ms). O WAND + CL vence o baseline em 11 das 12 consultas.
-* **A ablação mostra de onde vem o ganho.** Só trocar a ordenação total por um heap (TAAT + heap) já dá 1,83×, porque elimina o `O(N log N)` e a memória `O(N)`. O WAND clássico poda 83,3% dos documentos, mas fica em 1,38×, abaixo da ablação: em Python puro cada passo do WAND (ordenar cursores, achar o pivô, busca binária) custa mais que somar uma postagem, e as reviews são curtas (20 termos), então as listas são pequenas. As Champion Lists resolvem o início frio (θ = 0) e levam a 2,02×.
-* **Block-Max WAND poda mais (93,6%) e não é o mais rápido na média (1,48×).** O ponteiro de bloco acrescenta trabalho por pivô. É o trade-off clássico entre o custo da poda e as avaliações economizadas; em linguagem compilada, onde cada passo custa nanossegundos, a poda extra tende a compensar.
-* **Há um ponto de cruzamento.** Com 5.000 documentos o WAND + CL perde (0,70×) e com 10.000 ainda perde (0,78×); a partir de 20.000 passa a ganhar (1,72×) e a poda sobe de 74,6% para 90,6%. O custo do exaustivo cresce com N; o do WAND depende mais de K e dos termos raros. A base atual está logo acima do cruzamento, e o ganho deve crescer conforme a coleta diária acumular reviews.
-* **Correção ortográfica: 81× com a mesma resposta.** O índice de bigramas com Jaccard reduz os candidatos de 15.617 palavras para 8 a 194, e o Levenshtein roda só neles: 226 ms viram 2,8 ms, com a **mesma sugestão** da força bruta em 12 de 12 palavras. Isso viabiliza o "Você quis dizer" a cada busca.
+* **Ganho médio de 2,3×, sem perder nada.** O WAND + Champion Lists responde em 3,87 ms contra 9,05 ms do exaustivo (57,3% menos tempo), pontuando só 6,8% dos candidatos. O Top-K é **idêntico** ao exaustivo (mesmos documentos, mesma ordem, mesmos scores) nas 12 consultas. A memória por consulta cai de 6.316 KB para 15 KB.
+* **O ganho depende muito da consulta.** Em "jogo travando muito" são 69.763 candidatos e o WAND aquecido resolve em 0,23 ms (**94×**, 99,9% de poda): um termo raro com limite alto deixa os termos frequentes sem chance de entrar no Top-K sozinhos, e quase tudo é saltado. No outro extremo, "graficos lindos mundo aberto" fica em 1,36×: os termos têm frequência e limites parecidos, nenhum domina, e o algoritmo precisa visitar muitos pivôs mesmo podando 86,9% dos documentos. O WAND + CL vence o baseline em 12 das 12 consultas.
+* **A ablação mostra de onde vem o ganho.** Só trocar a ordenação total por um heap (TAAT + heap) já dá 1,91×, porque elimina o `O(N log N)` e a memória `O(N)`. O WAND clássico poda 90,8% dos documentos e chega a 2,09×; as Champion Lists resolvem o início frio (θ = 0) e levam a 2,34×. A distância para a ablação é pequena porque, em Python puro, cada passo do WAND (ordenar cursores, achar o pivô, busca binária) custa bem mais que somar uma postagem, e as reviews são curtas (20 termos em média).
+* **Block-Max WAND poda mais (94,7%) e não é o mais rápido na média (1,61×).** O ponteiro de bloco acrescenta trabalho por pivô. Ele ganha quando os limites globais enganam e os locais não, como em "historia emocionante personagens" (1,52 ms contra 3,88 ms do WAND + CL). É o trade-off clássico entre o custo da poda e as avaliações economizadas; em linguagem compilada a poda extra tende a compensar.
+* **O ganho cresce com o tamanho da base.** Com 5.000 documentos o WAND + CL perde (0,88×) e com 10.000 ainda perde (0,91×); a partir de 20.000 passa a ganhar (1,67×) e chega a 2,35× com 105.957, enquanto a poda sobe de 74,6% para 93,2%. O custo do exaustivo cresce com N; o do WAND depende mais de K e dos termos raros.
+* **Correção ortográfica: 96× com a mesma resposta.** O índice de bigramas com Jaccard reduz os candidatos de 31.276 palavras para 15 a 341, e o Levenshtein roda só neles: 471 ms viram 4,9 ms, com a **mesma sugestão** da força bruta em 12 de 12 palavras. Isso viabiliza o "Você quis dizer" a cada busca.
 * **Limitações.** Os tempos são de Python puro numa máquina de uso geral, com o Airflow e o Postgres rodando ao lado, e variam alguns décimos de milissegundo entre execuções; as razões entre algoritmos são o resultado estável. As 12 consultas são um conjunto fixo escolhido para cobrir termos frequentes, médios e raros, não uma amostra de consultas de usuários.
 
 ---
@@ -327,7 +337,8 @@ docker compose ps          # aguarde os serviços ficarem "healthy" (~1-2 min)
 # 4. Disparar os DAGs
 Airflow → DAGs → ative (toggle) dag_ingestao_raw e dag_consolidacao_dw
 Airflow → dag_ingestao_raw → ▶ Trigger DAG
-  ↳ coleta os 16 jogos (~5 min na primeira carga: 400 páginas a 1 req/s, 2 jogos em paralelo)
+  ↳ coleta os 16 jogos (~4 min: 400 páginas a 1 req/s, 2 jogos em paralelo)
+  ↳ para aprofundar o histórico: Trigger DAG w/ config → reprocessar_historico=true e max_paginas_inicial=100 (~15 min, 160 mil reviews)
   ↳ ao terminar, publica o Dataset e o dag_consolidacao_dw dispara sozinho
 
 # 5. Abrir o painel: http://localhost:8501 → "Recarregar dados"

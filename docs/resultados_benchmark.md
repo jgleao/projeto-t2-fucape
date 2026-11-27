@@ -1,36 +1,36 @@
 # Resultados do Benchmark (gerado por `python -m scripts.benchmark --fonte dw`)
 
 * **Corpus:** Data Warehouse (dw.dim_review, reviews reais da Steam)
-* **Indice:** 26699 documentos, 26832 termos, 464284 postagens (indexado em 1.2s)
-* **Ambiente:** Python 3.12.16 - Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.41 - 2026-11-27T01:52:20
+* **Indice:** 105957 documentos, 54500 termos, 1821516 postagens (indexado em 4.2s)
+* **Ambiente:** Python 3.12.16 - Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.41 - 2026-11-27T02:14:16
 * **Metodo:** media de 7 execucoes com `time.perf_counter()`, 1 aquecimento, GC desligado durante a medicao, K = 10.
 
 ## 1. Ranqueamento Top-K (BM25)
 
 | Consulta | Candidatos | Exaustivo (ms) | TAAT+heap (ms) | WAND (ms) | WAND+CL (ms) | BMW (ms) | Delta % (WAND+CL) | Speedup | Poda docs % | Top-K identico |
 |---|---|---|---|---|---|---|---|---|---|---|
-| jogo travando muito | 17642 | 5.785 | 5.002 | 5.72 | 0.113 | 0.119 | 98.1 | 51.29x | 99.8 | sim |
-| otimizacao ruim fps baixo | 861 | 1.371 | 0.217 | 0.469 | 0.459 | 0.683 | 66.5 | 2.98x | 82.8 | sim |
-| historia emocionante personagens | 3614 | 2.228 | 1.138 | 2.542 | 2.32 | 0.782 | -4.1 | 0.96x | 71.4 | sim |
-| servidor lag multiplayer | 257 | 1.274 | 0.074 | 0.19 | 0.144 | 0.184 | 88.7 | 8.83x | 84.0 | sim |
-| vale a pena comprar | 1820 | 1.863 | 0.754 | 1.211 | 1.245 | 1.553 | 33.2 | 1.5x | 69.6 | sim |
-| bugs crash fechando sozinho | 719 | 1.191 | 0.185 | 0.326 | 0.471 | 0.505 | 60.5 | 2.53x | 91.8 | sim |
-| graficos lindos mundo aberto | 2861 | 2.065 | 0.955 | 1.607 | 1.711 | 2.377 | 17.1 | 1.21x | 80.9 | sim |
-| preco caro promocao | 471 | 1.294 | 0.228 | 0.481 | 0.378 | 0.612 | 70.8 | 3.43x | 72.2 | sim |
-| jogar com amigos | 3701 | 2.246 | 1.103 | 1.761 | 1.328 | 2.02 | 40.9 | 1.69x | 86.5 | sim |
-| melhor jogo que ja joguei | 16737 | 5.634 | 4.753 | 4.302 | 4.14 | 7.049 | 26.5 | 1.36x | 92.8 | sim |
-| cheater hacker banido | 232 | 1.002 | 0.113 | 0.323 | 0.206 | 0.273 | 79.4 | 4.86x | 36.6 | sim |
-| musica trilha sonora incrivel | 2343 | 2.201 | 0.885 | 1.488 | 1.444 | 2.912 | 34.4 | 1.52x | 81.6 | sim |
+| jogo travando muito | 69763 | 21.355 | 19.707 | 5.611 | 0.228 | 0.336 | 98.9 | 93.72x | 99.9 | sim |
+| otimizacao ruim fps baixo | 3525 | 5.3 | 1.068 | 1.463 | 1.728 | 2.473 | 67.4 | 3.07x | 90.6 | sim |
+| historia emocionante personagens | 14218 | 9.228 | 4.255 | 4.603 | 3.879 | 1.522 | 58.0 | 2.38x | 89.5 | sim |
+| servidor lag multiplayer | 1027 | 3.585 | 0.305 | 0.414 | 0.315 | 0.517 | 91.2 | 11.38x | 90.5 | sim |
+| vale a pena comprar | 7564 | 7.13 | 2.345 | 3.297 | 3.792 | 4.731 | 46.8 | 1.88x | 88.9 | sim |
+| bugs crash fechando sozinho | 3212 | 4.877 | 0.934 | 1.074 | 1.027 | 1.961 | 78.9 | 4.75x | 95.6 | sim |
+| graficos lindos mundo aberto | 11513 | 8.121 | 3.098 | 5.942 | 5.987 | 9.527 | 26.3 | 1.36x | 86.9 | sim |
+| preco caro promocao | 2161 | 4.614 | 0.787 | 1.729 | 1.954 | 2.237 | 57.7 | 2.36x | 73.2 | sim |
+| jogar com amigos | 14537 | 8.427 | 3.776 | 5.647 | 5.46 | 8.348 | 35.2 | 1.54x | 85.3 | sim |
+| melhor jogo que ja joguei | 65990 | 22.883 | 17.383 | 16.535 | 16.652 | 27.729 | 27.2 | 1.37x | 92.4 | sim |
+| cheater hacker banido | 984 | 3.724 | 0.323 | 0.565 | 0.574 | 0.674 | 84.6 | 6.49x | 47.8 | sim |
+| musica trilha sonora incrivel | 9472 | 9.334 | 2.93 | 5.09 | 4.786 | 7.459 | 48.7 | 1.95x | 86.7 | sim |
 
 **Resumo**
 
 | Algoritmo | Tempo medio (ms) | Delta % | Speedup | Poda docs % | Memoria/consulta (KB) |
 |---|---|---|---|---|---|
-| BM25 exaustivo (baseline) | 2.346 | - | 1.0x | 0 | 1583.6 |
-| TAAT + heap (ablacao) | 1.284 | 45.3 | 1.83x | 0 | - |
-| WAND | 1.702 | 27.5 | 1.38x | 83.3 | 2.1 |
-| **WAND + Champion Lists** | **1.163** | **50.4** | **2.02x** | 90.6 | 13.8 |
-| Block-Max WAND | 1.589 | 32.3 | 1.48x | 93.6 | 13.8 |
+| BM25 exaustivo (baseline) | 9.048 | - | 1.0x | 0 | 6316.4 |
+| TAAT + heap (ablacao) | 4.743 | 47.6 | 1.91x | 0 | - |
+| WAND | 4.331 | 52.1 | 2.09x | 90.8 | 2.2 |
+| **WAND + Champion Lists** | **3.865** | **57.3** | **2.34x** | 93.2 | 15.4 |
+| Block-Max WAND | 5.626 | 37.8 | 1.61x | 94.7 | 15.4 |
 
 Top-K identico ao exaustivo em todas as consultas: WAND+CL = True, BMW = True.
 
@@ -38,26 +38,28 @@ Top-K identico ao exaustivo em todas as consultas: WAND+CL = True, BMW = True.
 
 | Digitado | Forca bruta (ms) | 2 estagios (ms) | Delta % | Speedup | Candidatos Levenshtein | Reducao % | Sugestao | Mesma sugestao |
 |---|---|---|---|---|---|---|---|---|
-| trvando | 185.744 | 4.976 | 97.3 | 37.3x | 184 / 15617 | 98.82 | travando | sim |
-| otimizaçao | 263.433 | 2.673 | 99.0 | 98.5x | 34 / 15617 | 99.78 | otimizacao | sim |
-| grafcos | 186.884 | 2.842 | 98.5 | 65.8x | 25 / 15617 | 99.84 | graficos | sim |
-| multiplayr | 242.589 | 1.277 | 99.5 | 190.0x | 12 / 15617 | 99.92 | multiplayer | sim |
-| servdor | 163.608 | 1.688 | 99.0 | 96.9x | 30 / 15617 | 99.81 | servidor | sim |
-| histporia | 196.562 | 2.401 | 98.8 | 81.9x | 17 / 15617 | 99.89 | historia | sim |
-| personagen | 230.051 | 2.438 | 98.9 | 94.4x | 8 / 15617 | 99.95 | personagens | sim |
-| dificuldad | 297.779 | 1.84 | 99.4 | 161.8x | 11 / 15617 | 99.93 | dificuldade | sim |
-| jogablidade | 331.257 | 4.903 | 98.5 | 67.6x | 45 / 15617 | 99.71 | jogabilidade | sim |
-| travamneto | 228.489 | 3.004 | 98.7 | 76.1x | 8 / 15617 | 99.95 | travamento | sim |
-| lagando | 159.782 | 3.436 | 97.8 | 46.5x | 194 / 15617 | 98.76 | lagando | sim |
-| emocionnte | 226.077 | 2.091 | 99.1 | 108.1x | 13 / 15617 | 99.92 | emocionante | sim |
+| trvando | 339.555 | 7.631 | 97.8 | 44.5x | 318 / 31276 | 98.98 | travando | sim |
+| otimizaçao | 460.339 | 4.214 | 99.1 | 109.2x | 65 / 31276 | 99.79 | otimizacao | sim |
+| grafcos | 406.902 | 3.78 | 99.1 | 107.7x | 43 / 31276 | 99.86 | graficos | sim |
+| multiplayr | 460.729 | 2.521 | 99.5 | 182.8x | 19 / 31276 | 99.94 | multiplayer | sim |
+| servdor | 338.42 | 4.259 | 98.7 | 79.5x | 41 / 31276 | 99.87 | servidor | sim |
+| histporia | 421.043 | 3.855 | 99.1 | 109.2x | 30 / 31276 | 99.9 | historia | sim |
+| personagen | 615.067 | 6.721 | 98.9 | 91.5x | 19 / 31276 | 99.94 | personagen | sim |
+| dificuldad | 577.08 | 5.174 | 99.1 | 111.5x | 27 / 31276 | 99.91 | dificuldade | sim |
+| jogablidade | 648.548 | 5.387 | 99.2 | 120.4x | 86 / 31276 | 99.73 | jogablidade | sim |
+| travamneto | 562.101 | 4.103 | 99.3 | 137.0x | 15 / 31276 | 99.95 | travamento | sim |
+| lagando | 336.022 | 7.255 | 97.8 | 46.3x | 341 / 31276 | 98.91 | lagando | sim |
+| emocionnte | 484.709 | 3.886 | 99.2 | 124.7x | 24 / 31276 | 99.92 | emocionante | sim |
 
-**Resumo:** forca bruta 226.021 ms vs. 2 estagios 2.797 ms -> Delta 98.8% (80.8x), concordancia 100.0%, autocompletar (Trie) 0.0006 ms.
+**Resumo:** forca bruta 470.876 ms vs. 2 estagios 4.899 ms -> Delta 99.0% (96.1x), concordancia 100.0%, autocompletar (Trie) 0.0005 ms.
 
 ## 3. Escalabilidade (o ganho cresce com o tamanho da base)
 
 | Documentos | Exaustivo (ms) | WAND+CL (ms) | BMW (ms) | Speedup WAND+CL | Poda % |
 |---|---|---|---|---|---|
-| 5000 | 0.329 | 0.473 | 0.618 | 0.7x | 74.6 |
-| 10000 | 0.694 | 0.889 | 1.134 | 0.78x | 78.0 |
-| 20000 | 1.474 | 0.86 | 0.987 | 1.72x | 89.5 |
-| 26699 | 2.48 | 1.405 | 1.46 | 1.76x | 90.6 |
+| 5000 | 0.377 | 0.43 | 0.697 | 0.88x | 74.6 |
+| 10000 | 0.737 | 0.808 | 1.136 | 0.91x | 78.0 |
+| 20000 | 1.526 | 0.913 | 1.259 | 1.67x | 89.5 |
+| 40000 | 2.917 | 1.533 | 2.016 | 1.9x | 91.6 |
+| 80000 | 6.813 | 3.218 | 4.06 | 2.12x | 93.0 |
+| 105957 | 10.134 | 4.311 | 6.593 | 2.35x | 93.2 |

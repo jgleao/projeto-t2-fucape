@@ -140,7 +140,8 @@ def item_review(pos: int | None, doc: dict, termos: list[str]) -> str:
     meta = [f"{num(doc.get('horas')):.1f} h jogadas".replace(".", ","),
             f"{fmt_int(doc.get('votos_uteis', 0))} votos úteis"]
     if doc.get("data"):
-        meta.append(str(doc["data"]))
+        data = doc["data"]
+        meta.append(data.strftime("%d/%m/%Y") if hasattr(data, "strftime") else str(data))
     posicao = f'<div class="pos">{pos:02d}</div>' if pos else ""
     return (f'<div class="painel item{"" if pos else " sem-pos"}">{posicao}<div><div class="cab">'
             f'<span class="jogo">{ui.e(doc.get("jogo", "-"))}</span>{selo}{placar}</div>'
