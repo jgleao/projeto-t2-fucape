@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Aluno** | João Gilberto Leão Vieira (trabalho individual) |
-| **Disciplinas** | Modelagem Informacional · Processamento de Linguagem Natural e Sistemas de Recuperação de Informação |
+| **Disciplinas** | Modelagem Informacional · Processamento de Linguagem Natural |
 | **Curso** | Ciência de Dados para Negócios, FUCAPE Business School, 2026/2º bimestre |
 | **Docente** | Prof. Dr. Wagner Perin |
 | **Tema** | Entretenimento & Games: avaliações (reviews) em português de 16 jogos populares da Steam |
