@@ -23,7 +23,7 @@ def _review(rid, steamid, ts, voto=True, votos_uteis=3, texto="Jogo [b]muito[/b]
         "votes_funny": 4294967295 if rid == 3 else 0, "weighted_vote_score": "0.5123",
         "comment_count": 1, "steam_purchase": True, "received_for_free": False,
         "written_during_early_access": False, "primarily_steam_deck": rid == 2,
-        "author": {"steamid": steamid, "num_games_owned": 120, "num_reviews": 7,
+        "author": {"steamid": steamid, "num_reviews": 7,
                    "playtime_forever": 6000, "playtime_at_review": 3000},
     }
 
@@ -123,7 +123,7 @@ def test_dados_sujos_da_api_nao_derrubam_a_carga(banco):
 
     estourada = _review(10, "c", 1_720_000_000, votos_uteis=4294967295)
     estourada["comment_count"] = 4294967295
-    estourada["author"]["num_games_owned"] = 4294967295
+    estourada["author"]["num_reviews"] = 4294967295
     com_nul = _review(11, "d", 1_720_000_100, texto="texto com \x00 nul e \ud83d surrogate solto")
     sem_data = _review(12, "e", 1_720_000_200)
     del sem_data["timestamp_created"]

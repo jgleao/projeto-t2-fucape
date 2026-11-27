@@ -10,12 +10,12 @@
 TRUNCATE stg.reviews;
 
 INSERT INTO stg.reviews (
-    recommendationid, app_id, steamid, autor_qtd_jogos, autor_qtd_reviews, minutos_jogados_total,
+    recommendationid, app_id, steamid, autor_qtd_reviews, minutos_jogados_total,
     minutos_jogados_review, idioma, criado_em, atualizado_em, recomendado, compra_steam, recebido_gratis,
     acesso_antecipado, steam_deck, votos_uteis, votos_engracados, qtd_comentarios, score_utilidade,
     texto_original, texto_limpo, qtd_palavras, qtd_caracteres, ingerido_em)
 SELECT
-    x.recommendationid, x.app_id, x.steamid, x.autor_qtd_jogos, x.autor_qtd_reviews,
+    x.recommendationid, x.app_id, x.steamid, x.autor_qtd_reviews,
     COALESCE(x.minutos_total, 0),
     COALESCE(x.minutos_review, x.minutos_total, 0),
     x.idioma, x.criado_em, x.atualizado_em, x.recomendado, x.compra_steam, x.recebido_gratis,
@@ -32,7 +32,7 @@ FROM (
         r.app_id,
         r.last_ingested_at                                                      AS ingerido_em,
         NULLIF(r.payload -> 'author' ->> 'steamid', '')                         AS steamid,
-        n.autor_qtd_jogos, n.autor_qtd_reviews, n.minutos_total, n.minutos_review,
+        n.autor_qtd_reviews, n.minutos_total, n.minutos_review,
         n.votos_uteis, n.votos_engracados, n.qtd_comentarios,
         r.payload ->> 'language'                                                AS idioma,
         (to_timestamp((r.payload ->> 'timestamp_created')::BIGINT) AT TIME ZONE 'America/Sao_Paulo') AS criado_em,
@@ -57,7 +57,6 @@ FROM (
     CROSS JOIN LATERAL (
         -- inteiros com clamp em [0, 2147483647]; texto nao numerico vira NULL
         SELECT
-            CASE WHEN v.jogos   ~ '^[0-9]+$' THEN LEAST(v.jogos::NUMERIC,   2147483647)::INTEGER END AS autor_qtd_jogos,
             CASE WHEN v.reviews ~ '^[0-9]+$' THEN LEAST(v.reviews::NUMERIC, 2147483647)::INTEGER END AS autor_qtd_reviews,
             CASE WHEN v.total   ~ '^[0-9]+$' THEN LEAST(v.total::NUMERIC,   2147483647)::INTEGER END AS minutos_total,
             CASE WHEN v.na_rev  ~ '^[0-9]+$' THEN LEAST(v.na_rev::NUMERIC,  2147483647)::INTEGER END AS minutos_review,
@@ -66,8 +65,7 @@ FROM (
             CASE WHEN v.funny   ~ '^[0-9]+$' AND v.funny::NUMERIC < 2147483647 THEN v.funny::INTEGER ELSE 0 END
                                                                                               AS votos_engracados,
             CASE WHEN v.coment  ~ '^[0-9]+$' THEN LEAST(v.coment::NUMERIC,  2147483647)::INTEGER END AS qtd_comentarios
-        FROM (SELECT r.payload -> 'author' ->> 'num_games_owned'    AS jogos,
-                     r.payload -> 'author' ->> 'num_reviews'        AS reviews,
+        FROM (SELECT r.payload -> 'author' ->> 'num_reviews'        AS reviews,
                      r.payload -> 'author' ->> 'playtime_forever'   AS total,
                      r.payload -> 'author' ->> 'playtime_at_review' AS na_rev,
                      r.payload ->> 'votes_up'                       AS uteis,

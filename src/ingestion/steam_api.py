@@ -1,22 +1,33 @@
-"""Acesso a API publica da Steam (sem chave): reviews paginadas por cursor e detalhes do jogo.
+"""Acesso as APIs publicas da Steam (sem chave): reviews paginadas por cursor e detalhes do jogo.
 
 Endpoints:
-* GET https://store.steampowered.com/appreviews/{app_id}?json=1&cursor=...
-  Pagina por cursor opaco; a primeira pagina usa cursor="*". filter=recent
+* GET https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/?input_json={...}
+  Substitui o antigo store.steampowered.com/appreviews/<appid>?json=1, que a
+  Valve descontinuou (hoje ele redireciona para a pagina inicial da loja).
+  Os parametros vao num JSON em input_json e os filtros sao enums numericos.
+  Pagina por cursor opaco; a primeira pagina usa cursor="*". O filtro Recent
   ordena da review mais nova para a mais antiga, o que permite parar a coleta
-  ao alcancar o watermark (carga incremental).
+  ao alcancar o watermark (carga incremental) e garante lista vazia no fim.
+  Sem chave, o limite de taxa e compartilhado e menor: HTTP 429 e esperado e
+  tratado pelo cliente HTTP (backoff).
 * GET https://store.steampowered.com/api/appdetails?appids={app_id}
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Iterator
 
 from src.ingestion.http_client import ClienteHttpResiliente
 
-URL_REVIEWS = "https://store.steampowered.com/appreviews/{app_id}"
+URL_REVIEWS = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
 URL_DETALHES = "https://store.steampowered.com/api/appdetails"
+
+# Enums do IUserReviewsService
+FILTRO_RECENTES = 1        # k_EUserReviewsAppReviewsFilter_Recent: mais recentes primeiro
+TIPO_REVIEW_TODAS = 0      # k_EUserReviewsReviewType_All: positivas e negativas
+TIPO_COMPRA_TODAS = 1      # k_EUserReviewsPurchaseType_All: compradas na Steam ou nao
 
 
 class RespostaInvalida(Exception):
@@ -60,27 +71,30 @@ class SteamApi:
     ) -> Iterator[PaginaReviews]:
         """Itera as paginas de reviews, da mais nova para a mais antiga.
 
-        Para quando: a pagina vem vazia; o cursor se repete ou falta (a API
-        devolve o mesmo cursor no fim); a review mais antiga da pagina e anterior
-        ao watermark; ou atinge max_paginas.
+        Para quando: a pagina vem vazia; o cursor se repete ou falta; a review
+        mais antiga da pagina e anterior ao watermark; ou atinge max_paginas.
         """
         resultado = resultado or ResultadoPaginacao()
         cursor = "*"
         vistos: set[str] = set()
-        url = URL_REVIEWS.format(app_id=app_id)
 
         for numero in range(1, max_paginas + 1):
-            corpo = self.http.get_json(url, params={
-                "json": 1,
-                "filter": "recent",
-                "language": idioma,
-                "review_type": "all",
-                "purchase_type": "all",
+            entrada = {
+                "appid": app_id,
+                "filter": FILTRO_RECENTES,
+                "languages": [idioma],
+                "review_type": TIPO_REVIEW_TODAS,
+                "purchase_type": TIPO_COMPRA_TODAS,
                 "num_per_page": por_pagina,
-                "cursor": cursor,  # requests faz o percent-encoding do cursor
-            })
-            if not isinstance(corpo, dict) or corpo.get("success") != 1:
-                raise RespostaInvalida(f"appreviews {app_id}: success={corpo.get('success') if isinstance(corpo, dict) else corpo!r}")
+                "cursor": cursor,
+            }
+            # requests faz o percent-encoding do JSON (e do cursor dentro dele)
+            bruto = self.http.get_json(URL_REVIEWS, params={"input_json": json.dumps(entrada)})
+            # Service interfaces da Steam embrulham o resultado em {"response": {...}};
+            # nao ha campo "success": o status HTTP ja foi validado pelo cliente.
+            corpo = bruto.get("response", bruto) if isinstance(bruto, dict) else None
+            if not isinstance(corpo, dict):
+                raise RespostaInvalida(f"GetAppReviews {app_id}: resposta inesperada {str(bruto)[:120]!r}")
 
             reviews = corpo.get("reviews") or []
             if not reviews:

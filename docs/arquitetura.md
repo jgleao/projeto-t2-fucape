@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
     subgraph S1["Fonte externa"]
-        API1["Steam Store API<br>/appreviews (cursor)"]
+        API1["Steam Web API<br>IUserReviewsService/GetAppReviews (cursor)"]
         API2["Steam Store API<br>/api/appdetails"]
     end
 
@@ -66,7 +66,7 @@ sequenceDiagram
     S->>T: mapeamento dinâmico (1 tarefa por jogo, máx. 2 em paralelo)
     T->>R: SELECT max(timestamp_created) (watermark)
     loop até página vazia / cursor repetido / watermark / limite
-        T->>H: GET /appreviews?cursor=...&filter=recent
+        T->>H: GET GetAppReviews?input_json={cursor, filter: Recent, ...}
         H->>H: limitador: >= 1s desde a última requisição
         H->>API: requisição
         alt 429 / 5xx / timeout / JSON inválido
@@ -86,7 +86,7 @@ sequenceDiagram
 
 | Problema | Tratamento | Onde |
 |---|---|---|
-| Paginação | Cursor opaco da Steam (`cursor=*` na primeira página, depois o `cursor` devolvido). Para em página vazia, cursor repetido ou ausente (a API repete o cursor no fim da lista), watermark ou limite de páginas | `steam_api.py` |
+| Paginação | `IUserReviewsService/GetAppReviews`, que substituiu o `/appreviews` descontinuado pela Valve (o antigo hoje redireciona para a loja). Cursor opaco (`cursor=*` na primeira página, depois o `cursor` devolvido). Para em página vazia, cursor repetido ou ausente (a API repete o cursor no fim da lista), watermark ou limite de páginas | `steam_api.py` |
 | Rate limit (HTTP 429) | Retentativa com **exponential backoff com equal jitter**. Se vier `Retry-After`, a espera nunca é menor que ele | `http_client.py` |
 | Instabilidade (500/502/503/504, timeout, conexão) | Mesmo backoff, até 6 retentativas, teto de 60 s por espera | `http_client.py` |
 | Resposta 200 inválida (HTML de erro) | Tratada como retentável | `http_client.py` |

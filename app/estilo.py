@@ -259,7 +259,7 @@ def diagrama_estrela() -> str:
     jogo = tab("dim_jogo", "SCD tipo 1 · chave natural app_id", [
         ("sk_jogo", "int", "PK"), ("nome_jogo", "text"), ("genero_principal", "text"), ("preco_base_brl", "numeric")])
     autor = tab("dim_autor", "SCD tipo 1 · chave natural steamid", [
-        ("sk_autor", "int", "PK"), ("qtd_jogos_possuidos", "int"), ("faixa_biblioteca", "text"),
+        ("sk_autor", "int", "PK"), ("steamid", "text"), ("qtd_reviews_escritas", "int"),
         ("perfil_avaliador", "text")])
     perfil = tab("dim_perfil_review", "junk dimension · 32 combinações", [
         ("sk_perfil", "int", "PK"), ("recomendado", "bool"), ("compra_steam, gratis", "bool"),

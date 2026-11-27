@@ -70,9 +70,7 @@ erDiagram
     DIM_AUTOR {
         int sk_autor PK
         string steamid "NK"
-        int qtd_jogos_possuidos
         int qtd_reviews_escritas
-        string faixa_biblioteca
         string perfil_avaliador
     }
     DIM_PERFIL_REVIEW {
@@ -107,7 +105,7 @@ erDiagram
 | **`dim_perfil_review` como *junk dimension*** | Cinco flags de baixa cardinalidade (recomendado, compra na Steam, recebida grátis, acesso antecipado, Steam Deck) viram **uma** dimensão de 32 linhas pré-populadas, em vez de cinco FKs ou flags soltas na fato. |
 | **`dim_review` separada da fato** | Texto longo não pertence à fato, que deve ser estreita e numérica. A dimensão de texto tem a mesma cardinalidade da fato (relação 1:1), é o corpus indexado pelo motor de busca e mantém a fato enxuta para agregações. |
 | **`dim_tempo` gerada por calendário** | Todos os dias dos meses cobertos são criados, inclusive dias sem reviews, o que permite séries temporais contínuas. Atributos em português (`nome_mes`, `dia_semana`). |
-| **SCD tipo 1** em `dim_jogo` e `dim_autor` | Para a análise interessa o estado atual (preço, gênero, tamanho da biblioteca). Mudanças sobrescrevem o atributo e a SK se mantém. |
+| **SCD tipo 1** em `dim_jogo` e `dim_autor` | Para a análise interessa o estado atual (preço, gênero, reviews escritas). Mudanças sobrescrevem o atributo e a SK se mantém. |
 | **Integridade referencial** | `FOREIGN KEY` real da fato para cada dimensão, mais os checks de qualidade do DAG 2. |
 
 ## 4. Dicionário da fato `dw.fato_review`
@@ -134,7 +132,7 @@ erDiagram
 |---|---|---|---|
 | `dim_tempo` | `data_completa` | ano, semestre, trimestre, mês, nome do mês, `ano_mes`, dia, dia da semana, fim de semana, semana do ano | Tendência mensal, sazonalidade, dia da semana |
 | `dim_jogo` | `app_id` | nome, desenvolvedora, publicadora, gênero principal, gêneros, gratuito, preço base (BRL), data e ano de lançamento, descrição | Ranking de recomendação por jogo e gênero |
-| `dim_autor` | `steamid` | jogos possuídos, reviews escritas, faixa de biblioteca, perfil de avaliador | Segmentação de jogadores casuais e veteranos |
+| `dim_autor` | `steamid` | reviews escritas, perfil de avaliador (primeira review, ocasional, frequente, veterano) | Segmentação de avaliadores casuais e veteranos |
 | `dim_perfil_review` | 5 flags | recomendado, origem da cópia, fase do jogo, plataforma (com descrições legíveis) | Filtros e `GROUP BY` sem joins extras |
 | `dim_review` | `recommendationid` | idioma, texto original, texto limpo (sem BBCode e URLs), palavras, faixa de tamanho | Corpus do motor de busca BM25/WAND |
 

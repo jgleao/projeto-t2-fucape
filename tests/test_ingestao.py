@@ -1,5 +1,7 @@
 """Resiliencia da ingestao: backoff, Retry-After, erros permanentes e paginacao por cursor."""
 
+import json
+
 import pytest
 import requests
 
@@ -91,10 +93,14 @@ class HttpFalso:
     def __init__(self, paginas):
         self.paginas = paginas
         self.cursores = []
+        self.entradas = []
 
     def get_json(self, url, params=None):
-        self.cursores.append(params["cursor"])
-        return self.paginas[params["cursor"]]
+        entrada = json.loads(params["input_json"])
+        self.entradas.append(entrada)
+        self.cursores.append(entrada["cursor"])
+        # a API real embrulha o resultado em {"response": {...}}
+        return {"response": self.paginas[entrada["cursor"]]}
 
 
 def _review(rid, ts):
@@ -103,9 +109,9 @@ def _review(rid, ts):
 
 def test_paginacao_por_cursor_ate_cursor_repetido():
     paginas = {
-        "*": {"success": 1, "cursor": "A", "reviews": [_review(i, 1000 - i) for i in range(2)]},
-        "A": {"success": 1, "cursor": "B", "reviews": [_review(i, 900 - i) for i in range(2, 4)]},
-        "B": {"success": 1, "cursor": "B", "reviews": [_review(i, 800 - i) for i in range(4, 6)]},
+        "*": {"cursor": "A", "reviews": [_review(i, 1000 - i) for i in range(2)]},
+        "A": {"cursor": "B", "reviews": [_review(i, 900 - i) for i in range(2, 4)]},
+        "B": {"cursor": "B", "reviews": [_review(i, 800 - i) for i in range(4, 6)]},
     }
     http = HttpFalso(paginas)
     res = ResultadoPaginacao()
@@ -116,9 +122,9 @@ def test_paginacao_por_cursor_ate_cursor_repetido():
 
 def test_paginacao_para_no_watermark():
     paginas = {
-        "*": {"success": 1, "cursor": "A", "reviews": [_review(1, 500), _review(2, 400)]},
-        "A": {"success": 1, "cursor": "B", "reviews": [_review(3, 300), _review(4, 100)]},
-        "B": {"success": 1, "cursor": "C", "reviews": [_review(5, 50), _review(6, 40)]},
+        "*": {"cursor": "A", "reviews": [_review(1, 500), _review(2, 400)]},
+        "A": {"cursor": "B", "reviews": [_review(3, 300), _review(4, 100)]},
+        "B": {"cursor": "C", "reviews": [_review(5, 50), _review(6, 40)]},
     }
     res = ResultadoPaginacao()
     lidas = list(SteamApi(HttpFalso(paginas)).paginas_reviews(1, por_pagina=2, parar_antes_de_ts=200,
@@ -127,8 +133,8 @@ def test_paginacao_para_no_watermark():
 
 
 def test_paginacao_respeita_limite_e_pagina_vazia():
-    paginas = {"*": {"success": 1, "cursor": "A", "reviews": [_review(1, 5), _review(2, 4)]},
-               "A": {"success": 1, "cursor": "B", "reviews": []}}
+    paginas = {"*": {"cursor": "A", "reviews": [_review(1, 5), _review(2, 4)]},
+               "A": {"cursor": "B", "reviews": []}}
     res = ResultadoPaginacao()
     assert len(list(SteamApi(HttpFalso(paginas)).paginas_reviews(1, por_pagina=2, resultado=res))) == 1
     assert res.motivo_parada == "pagina vazia"
@@ -136,3 +142,19 @@ def test_paginacao_respeita_limite_e_pagina_vazia():
     assert len(list(SteamApi(HttpFalso(paginas)).paginas_reviews(1, por_pagina=2, max_paginas=1,
                                                                   resultado=res))) == 1
     assert res.motivo_parada == "limite de 1 paginas"
+
+
+def test_parametros_do_iuserreviewsservice():
+    """Filtros como enums numericos, idioma em lista e appid no JSON (nao na URL)."""
+    http = HttpFalso({"*": {"cursor": "A", "reviews": []}})
+    list(SteamApi(http).paginas_reviews(413150, idioma="brazilian", por_pagina=100))
+    assert http.entradas[0] == {"appid": 413150, "filter": 1, "languages": ["brazilian"], "review_type": 0,
+                                "purchase_type": 1, "num_per_page": 100, "cursor": "*"}
+
+
+def test_resposta_sem_envelope_tambem_e_aceita():
+    class SemEnvelope(HttpFalso):
+        def get_json(self, url, params=None):
+            return super().get_json(url, params)["response"]
+    paginas = {"*": {"cursor": "A", "reviews": [_review(1, 5)]}, "A": {"cursor": "B", "reviews": []}}
+    assert len(list(SteamApi(SemEnvelope(paginas)).paginas_reviews(1))) == 1
